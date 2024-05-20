@@ -53,9 +53,19 @@ struct map {
 };
 
 struct id_list {
-	int id;
+	uint32_t id;
 	struct id_list * next;
 	struct id_list * prev;
+};
+
+struct obj_moved {
+	uint32_t id;
+	float speed;
+	float pos[3];
+	float vec[3];
+	float distance;
+	struct obj_moved * next;
+	struct obj_moved * prev;
 };
 
 struct aoi_space {
@@ -67,8 +77,9 @@ struct aoi_space {
 	struct object_set * watcher_move;
 	struct object_set * marker_move;
 	struct pair_list * hot;
+	struct obj_moved * moved;
 	struct id_list * ids;
-	int id_begin;
+	uint32_t id_begin;
 };
 
 static struct object *
@@ -392,6 +403,40 @@ dist2(struct object *p1, struct object *p2) {
 	return d;
 }
 
+inline static void
+flush_move_sign(struct object * obj)
+{
+	if(obj == NULL || (obj->mode & MODE_DROP))
+	{
+		return;
+	}
+
+	copy_position(obj->last, obj->position);
+	obj->mode |= MODE_MOVE;
+	++obj->version;
+}
+
+inline static void
+set_position(struct aoi_space *space, struct object * obj, float pos[3])
+{
+	if(obj == NULL || (obj->mode & MODE_DROP))
+	{
+		return;
+	}
+	copy_position(obj->position, pos);
+	if(is_near(pos, obj->last))
+	{
+		return;
+	}
+	flush_move_sign(obj);
+}
+
+void
+aoi_position(struct aoi_space *space, uint32_t id, float pos[3])
+{
+	set_position(space, map_query(space, space->object, id), pos);
+}
+
 void
 aoi_update(struct aoi_space * space , uint32_t id, const char * modestring , float pos[3]) {
 	struct object * obj = map_query(space, space->object,id);
@@ -423,15 +468,12 @@ aoi_update(struct aoi_space * space , uint32_t id, const char * modestring , flo
 	}
 
 	bool changed = change_mode(obj, set_watcher, set_marker);
-
-	copy_position(obj->position, pos);
+	copy_position(obj->position, pos);	
 	if (changed || !is_near(pos, obj->last)) {
 		// new object or change object mode
 		// or position changed
-		copy_position(obj->last , pos);
-		obj->mode |= MODE_MOVE;
-		++obj->version;
-	} 
+		flush_move_sign(obj, changed);
+	}
 }
 
 static void
@@ -567,4 +609,183 @@ default_alloc(void * ud, void *ptr, size_t sz) {
 struct aoi_space * 
 aoi_new() {
 	return aoi_create(default_alloc, NULL);
+}
+
+inline static void
+release_moved(struct aoi_space * space, struct obj_moved * moved) {
+	if(moved == NULL)
+	{
+		return;
+	}
+
+	if (moved->prev) {
+		moved->prev->next = moved->next;
+	} else {
+		space->moved = moved->next;
+	}
+	if (moved->next) {
+		moved->next->prev = moved->prev;
+	}
+	space->alloc(space->alloc_ud, moved, sizeof(*moved));
+}
+
+void
+aoi_move_to(struct aoi_space *space, uint32_t id, float speed, float pos[3]) {
+	struct object * obj = map_query(space, space->object, id);
+	if (obj->mode & MODE_DROP) {
+		return;
+	}
+
+	//计算移动方向
+	float vec[3] = {0};
+	float distance = sqrt(DIST2(obj->position, pos));
+	if(distance > 0)
+	{
+		vec[0] = (pos[0] - obj->position[0]) / distance;
+		vec[1] = (pos[1] - obj->position[1]) / distance;
+		vec[2] = (pos[2] - obj->position[2]) / distance;
+	}
+	else
+	{
+		return;
+	}
+
+	struct obj_moved* moved = space->moved;
+	while(moved)
+	{
+		if(moved->id == id)
+		{
+			break;
+		}
+		moved = moved->next;
+	}
+
+	if(moved == NULL)
+	{
+		moved = space->alloc(space->alloc_ud, NULL, sizeof(*moved));
+		moved->next = space->moved;
+		moved->prev = NULL;
+		if(space->moved)
+		{
+			space->moved->prev = moved;
+		}
+		space->moved = moved;
+	}
+
+	moved->id = id;
+	moved->speed = speed;
+	copy_position(moved->pos, pos);
+	copy_position(moved->vec, vec);
+	moved->distance = distance;
+}
+
+void
+aoi_set_speed(struct aoi_space *space, uint32_t id, float speed)
+{
+	struct obj_moved* moved = space->moved;
+	while(moved)
+	{
+		if(moved->id == id)
+		{
+			break;
+		}
+		moved = moved->next;
+	}
+
+	if(moved)
+	{
+		moved->speed = speed;
+
+		//如果速度为0，则刷新位置
+		if(speed == 0)
+		{
+			struct object * obj = map_query(space, space->object, id);
+			if(obj == NULL || (obj->mode & MODE_DROP))
+			{
+				return;
+			}
+
+			if(obj->position[0] != moved->pos[0] && obj->position[1] != moved->pos[1] && obj->position[2] != moved->pos[2])
+			{
+				flush_move_sign(obj);
+			}
+		}
+	}
+}
+
+void
+aoi_apply_move(struct aoi_space *space, float delta)
+{
+	if(delta <= 0)
+	{
+		return;
+	}
+	
+	struct obj_moved* moved = space->moved;
+	while(moved)
+	{
+		float distance = moved->speed * delta;
+		if(distance == 0)
+		{
+			moved = moved->next;
+			continue;
+		}
+
+		struct object * obj = map_query(space, space->object, moved->id);
+		if(obj == NULL || obj->mode & MODE_DROP)
+		{
+			release_moved(space, moved);
+			continue;
+		}
+
+		//获取object，并计算当前位置到终点的距离
+		moved->distance = sqrt(DIST2(obj->position, moved->pos));
+		if(distance >= moved->distance)
+		{
+			copy_position(obj->position, moved->pos);
+			struct obj_moved* next = moved->next;
+			release_moved(space, moved);
+			moved = next;
+
+			flush_move_sign(obj);
+		}
+		else
+		{
+			moved->distance -= distance;
+			moved->pos[0] += moved->vec[0] * distance;
+			moved->pos[1] += moved->vec[1] * distance;
+			moved->pos[2] += moved->vec[2] * distance;
+			moved = moved->next;
+
+			set_position(space, obj, moved->pos);
+		}
+	}
+}
+
+void
+aoi_cancel_move(struct aoi_space *space, uint32_t id) {
+	struct obj_moved* moved = space->moved;
+	while(moved)
+	{
+		if(moved->id == id)
+		{
+			break;
+		}
+		moved = moved->next;
+	}
+
+	if(moved)
+	{
+		release_moved(space, moved);
+		struct object * obj = map_query(space, space->object, id);
+		if(obj == NULL || (obj->mode & MODE_DROP))
+		{
+			return;
+		}
+
+		if(obj->position[0] != moved->pos[0] && obj->position[1] != moved->pos[1] && obj->position[2] != moved->pos[2])
+		{
+			flush_move_sign(obj);
+		}
+	}
 }
