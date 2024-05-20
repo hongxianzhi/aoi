@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -472,7 +473,7 @@ aoi_update(struct aoi_space * space , uint32_t id, const char * modestring , flo
 	if (changed || !is_near(pos, obj->last)) {
 		// new object or change object mode
 		// or position changed
-		flush_move_sign(obj, changed);
+		flush_move_sign(obj);
 	}
 }
 
