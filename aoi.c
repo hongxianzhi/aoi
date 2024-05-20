@@ -52,6 +52,12 @@ struct map {
 	struct map_slot * slot;
 };
 
+struct id_list {
+	int id;
+	struct id_list * next;
+	struct id_list * prev;
+};
+
 struct aoi_space {
 	aoi_Alloc alloc;
 	void * alloc_ud;
@@ -61,6 +67,8 @@ struct aoi_space {
 	struct object_set * watcher_move;
 	struct object_set * marker_move;
 	struct pair_list * hot;
+	struct id_list * ids;
+	int id_begin;
 };
 
 static struct object *
@@ -220,6 +228,15 @@ grab_object(struct object *obj) {
 static void
 delete_object(void *s, struct object * obj) {
 	struct aoi_space * space = s;
+	struct id_list *id = space->alloc(space->alloc_ud, NULL, sizeof(*id));
+	id->id = obj->id;
+	id->next = space->ids;
+	space->ids = id;
+	if(id->next)
+	{
+		id->next->prev = id;
+	}
+	id->id = obj->id;
 	space->alloc(space->alloc_ud, obj, sizeof(*obj));
 }
 
@@ -252,6 +269,8 @@ aoi_create(aoi_Alloc alloc, void *ud) {
 	space->watcher_move = set_new(space);
 	space->marker_move = set_new(space);
 	space->hot = NULL;
+	space->ids = NULL;
+	space->id_begin = 1;
 	return space;
 }
 
@@ -283,6 +302,39 @@ aoi_release(struct aoi_space *space) {
 	delete_set(space,space->watcher_move);
 	delete_set(space,space->marker_move);
 	space->alloc(space->alloc_ud, space, sizeof(*space));
+	struct id_list *ids = space->ids;
+	while(ids)
+	{
+		struct id_list *next = ids->next;
+		space->alloc(space->alloc_ud, ids, sizeof(*ids));
+		ids = next;
+	}
+	space->ids = NULL;
+}
+
+int aoi_gen_id(struct aoi_space *space)
+{
+	while (true)
+	{
+		int result = 0;
+		if(space->ids == NULL)
+		{
+			result = space->id_begin++;
+		}
+		else
+		{
+			//从链表中取出一个id
+			struct id_list *item = space->ids;
+			space->ids = item->next;
+			result = item->id;
+			space->alloc(space->alloc_ud, item, sizeof(*item));
+		}
+		assert(result >= 0);
+		if(map_query(space, space->object, result) == NULL)
+		{
+			return result;
+		}
+	}
 }
 
 inline static void 

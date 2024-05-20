@@ -12,6 +12,7 @@ struct aoi_space;
 struct aoi_space * aoi_create(aoi_Alloc alloc, void *ud);
 struct aoi_space * aoi_new();
 void aoi_release(struct aoi_space *);
+int aoi_gen_id(struct aoi_space *space);
 
 // w(atcher) m(arker) d(rop)
 void aoi_update(struct aoi_space * space , uint32_t id, const char * mode , float pos[3]);
