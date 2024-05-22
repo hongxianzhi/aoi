@@ -27,11 +27,37 @@ void aoi_apply_move(struct aoi_space *space, float delta);
 void aoi_cancel_move(struct aoi_space *space, uint32_t id);
 
 //user callback
-void* aoi_add_user_handlers(struct aoi_space *space);
-void* aoi_alloc_handlers_data(struct aoi_space *space, void* handlers, size_t sz);
-void* aoi_get_handlers_data(struct aoi_space *space, void* handlers);
-void aoi_del_user_handles(struct aoi_space *space, void* handlers);
-void aoi_set_user_callback(struct aoi_space *space, void* handlers, int type, user_callback* cb);
+//预定义事件类型、数据结构
+#define USER_HANDLER_TYPE_UPDATE 0
+typedef struct _update_callback_data {
+	float delat;
+} update_callback_data;
+
+#define USER_HANDLER_TYPE_AOI_CREATE_OBJECT 1
+#define USER_HANDLER_TYPE_AOI_DELETE_OBJECT 2
+#define USER_HANDLER_TYPE_AOI_MOVED 3
+typedef struct _aoi_object_callback_data {
+	uint32_t id;
+	float pos[3];
+} aoi_create_object_data;
+
+#define USER_HANDLER_TYPE_AOI_GEN_PAIR 4
+#define USER_HANDLER_TYPE_AOI_DROP_PAIR 5
+typedef struct _aoi_pair_callback_data {
+	uint32_t watcher;
+	uint32_t marker;
+} aoi_create_pair_data;
+
+#define USER_HANDLER_TYPE_FREE_AOI_SPACE 6
+typedef struct _free_aoi_space_data {
+	struct aoi_space* space;
+} free_aoi_space_data;
+
+void aoi_add_handler_host(struct aoi_space *space, uint32_t hostid);
+void* aoi_alloc_handler_host_data(struct aoi_space *space, uint32_t hostid, size_t sz);
+void* aoi_get_handler_hsot_data(struct aoi_space *space, uint32_t hostid);
+void aoi_del_user_handler_host(struct aoi_space *space, uint32_t hostid);
+void aoi_set_user_callback(struct aoi_space *space, uint32_t hostid, int type, user_callback* cb);
 void aoi_fire_user_callback(struct aoi_space *space, int type, void* userdata);
 
 #endif
