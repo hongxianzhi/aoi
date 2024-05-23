@@ -92,7 +92,7 @@ test(struct aoi_space * space) {
 				update_obj(space,j);
 			}
 		}
-		aoi_message(space, message, NULL);
+		aoi_message(space);
 	}
 }
 

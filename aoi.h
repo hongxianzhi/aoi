@@ -7,7 +7,6 @@
 struct aoi_space;
 
 typedef void * (*aoi_Alloc)(void *ud, void * ptr, size_t sz);
-typedef void (aoi_Callback)(void *ud, uint32_t watcher, uint32_t marker);
 typedef void (user_callback)(struct aoi_space* space, void* handlers_data, void* userdata);
 
 struct aoi_space * aoi_create(aoi_Alloc alloc, void *ud);
@@ -18,7 +17,7 @@ void aoi_position(struct aoi_space *space, uint32_t id, float pos[3]);
 
 // w(atcher) m(arker) d(rop)
 void aoi_update(struct aoi_space * space , uint32_t id, const char * mode , float pos[3]);
-void aoi_message(struct aoi_space *space, aoi_Callback cb, void *ud);
+void aoi_message(struct aoi_space *space);
 
 //move
 void aoi_move_to(struct aoi_space *space, uint32_t id, float speed, float pos[3]);
@@ -37,15 +36,14 @@ typedef struct _update_callback_data {
 #define USER_HANDLER_TYPE_AOI_DELETE_OBJECT 2
 #define USER_HANDLER_TYPE_AOI_MOVED 3
 typedef struct _aoi_object_callback_data {
-	uint32_t id;
+	void* obj;
 	float pos[3];
 } aoi_create_object_data;
 
 #define USER_HANDLER_TYPE_AOI_GEN_PAIR 4
 #define USER_HANDLER_TYPE_AOI_DROP_PAIR 5
 typedef struct _aoi_pair_callback_data {
-	uint32_t watcher;
-	uint32_t marker;
+	void* pair;
 } aoi_create_pair_data;
 
 #define USER_HANDLER_TYPE_FREE_AOI_SPACE 6
@@ -59,5 +57,11 @@ void* aoi_get_handler_hsot_data(struct aoi_space *space, uint32_t hostid);
 void aoi_del_user_handler_host(struct aoi_space *space, uint32_t hostid);
 void aoi_set_user_callback(struct aoi_space *space, uint32_t hostid, int type, user_callback* cb);
 void aoi_fire_user_callback(struct aoi_space *space, int type, void* userdata);
+
+//neighbor
+int aoi_begin_parse_neighbor(struct aoi_space *space, uint32_t id);
+int aoi_next_neighbor(struct aoi_space *space, uint32_t* id);
+int aoi_is_neighbor(struct aoi_space *space, uint32_t id);
+int aoi_end_parse_neighbor(struct aoi_space *space);
 
 #endif
