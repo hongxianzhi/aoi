@@ -1068,13 +1068,17 @@ void
 aoi_push_message_handler(struct aoi_space *space, char* message_id, message_handler* cb)
 {
 	struct user_data* list = _get_user_data(space->message_handlers, message_id);
-	while (list)
+	if (list)
 	{
-		if(list->data == cb)
+		struct user_data* handlers = list->data;
+		while(handlers)
 		{
-			return;
+			if(handlers->data == cb)
+			{
+				return;
+			}
+			handlers = handlers->next;
 		}
-		list = list->next;
 	}
 
 	if(list == NULL)
