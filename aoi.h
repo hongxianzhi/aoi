@@ -16,7 +16,7 @@ int aoi_gen_id(struct aoi_space *space);
 void aoi_position(struct aoi_space *space, uint32_t id, float pos[3]);
 
 // w(atcher) m(arker) d(rop)
-void aoi_update(struct aoi_space * space , uint32_t id, const char * mode , float pos[3]);
+void aoi_update(struct aoi_space * space , uint32_t id, const char * mode , float pos[3], float radius);
 void aoi_message(struct aoi_space *space);
 
 //move

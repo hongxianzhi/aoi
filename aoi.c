@@ -660,7 +660,7 @@ aoi_position(struct aoi_space *space, uint32_t id, float pos[3])
 }
 
 void
-aoi_update(struct aoi_space * space , uint32_t id, const char * modestring , float pos[3]) {
+aoi_update(struct aoi_space * space , uint32_t id, const char * modestring , float pos[3], float radius) {
 	struct object * obj = map_query(space, space->object,id);
 	int i;
 	bool set_watcher = false;
@@ -690,7 +690,8 @@ aoi_update(struct aoi_space * space , uint32_t id, const char * modestring , flo
 	}
 
 	bool changed = change_mode(obj, set_watcher, set_marker);
-	copy_position(obj->position, pos);	
+	copy_position(obj->position, pos);
+	obj->radius = radius >= 0 ? radius : 0;
 	if (changed || !is_near(pos, obj->last)) {
 		// new object or change object mode
 		// or position changed
