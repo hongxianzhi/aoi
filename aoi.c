@@ -1061,6 +1061,7 @@ aoi_create_user_data(struct aoi_space *space, char* data_id, size_t sz)
 		space->user_datas->prev = user_data;
 	}
 	memset(user_data->data, 0, sz);
+	space->user_datas = user_data;
 	return user_data->data;
 }
 
