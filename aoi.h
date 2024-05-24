@@ -7,7 +7,7 @@
 struct aoi_space;
 
 typedef void * (*aoi_Alloc)(void *ud, void * ptr, size_t sz);
-typedef void (user_callback)(struct aoi_space* space, void* handlers_data, void* userdata);
+typedef void (message_handler)(struct aoi_space* space, void* userdata);
 
 struct aoi_space * aoi_create(aoi_Alloc alloc, void *ud);
 struct aoi_space * aoi_new();
@@ -32,31 +32,30 @@ typedef struct _update_callback_data {
 	float delat;
 } update_callback_data;
 
-#define USER_HANDLER_TYPE_AOI_CREATE_OBJECT 1
-#define USER_HANDLER_TYPE_AOI_DELETE_OBJECT 2
-#define USER_HANDLER_TYPE_AOI_MOVED 3
+//_CREATE_OBJECT
+//_DELETE_OBJECT
+//_OBJECT_MOVED
 typedef struct _aoi_object_callback_data {
 	void* obj;
 	float pos[3];
 } aoi_create_object_data;
 
-#define USER_HANDLER_TYPE_AOI_GEN_PAIR 4
-#define USER_HANDLER_TYPE_AOI_DROP_PAIR 5
+//_CREATE_PAIR
+//_DELETE_PAIR
 typedef struct _aoi_pair_callback_data {
 	void* pair;
 } aoi_create_pair_data;
 
-#define USER_HANDLER_TYPE_FREE_AOI_SPACE 6
+//_FREE_AOI_SPACE
 typedef struct _free_aoi_space_data {
 	struct aoi_space* space;
 } free_aoi_space_data;
 
-void aoi_add_handler_host(struct aoi_space *space, uint32_t hostid);
-void* aoi_alloc_handler_host_data(struct aoi_space *space, uint32_t hostid, size_t sz);
-void* aoi_get_handler_hsot_data(struct aoi_space *space, uint32_t hostid);
-void aoi_del_user_handler_host(struct aoi_space *space, uint32_t hostid);
-void aoi_set_user_callback(struct aoi_space *space, uint32_t hostid, int type, user_callback* cb);
-void aoi_fire_user_callback(struct aoi_space *space, int type, void* userdata);
+void* aoi_get_user_data(struct aoi_space *space, char* data_id);
+void* aoi_create_user_data(struct aoi_space *space, char* data_id, size_t sz);
+void aoi_push_message_handler(struct aoi_space *space, char* message_id, message_handler* cb);
+void aoi_pop_message_handler(struct aoi_space *space, char* message_id, message_handler* cb);
+void aoi_fire_message(struct aoi_space *space, char* message_id, void* userdata);
 
 //neighbor
 int aoi_begin_parse_neighbor(struct aoi_space *space, uint32_t id);

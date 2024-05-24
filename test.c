@@ -65,7 +65,10 @@ update_obj(struct aoi_space *space, uint32_t id) {
 }
 
 static void
-message(void *ud, uint32_t watcher, uint32_t marker) {
+message(struct aoi_space* space, void *ud) {
+	uint32_t * ids = ud;
+	uint32_t watcher = ids[0];
+	uint32_t marker = ids[1];
 	printf("%u (%f,%f) => %u (%f,%f)\n",
 		watcher, OBJ[watcher].pos[0], OBJ[watcher].pos[1],
 		marker, OBJ[marker].pos[0], OBJ[marker].pos[1]
@@ -100,6 +103,8 @@ int
 main() {
 	struct alloc_cookie cookie = { 0,0,0 };
 	struct aoi_space * space = aoi_create(my_alloc , &cookie);
+
+	aoi_push_message_handler(space, "_NEIGHBOR_ENTER", message);
 
 	test(space);
 

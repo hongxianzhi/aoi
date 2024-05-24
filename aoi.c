@@ -22,10 +22,10 @@
 
 struct pair_list;
 static void drop_pair(struct aoi_space * space, struct pair_list *p);
-static void free_aoi_space_callback(struct aoi_space *space, void* handlers_data, void* userdata);
-static void drop_object_callback(struct aoi_space* space, void* handlers_data, void* userdata);
-static void gen_neighbor_callback(struct aoi_space* space, void* handlers_data, void* userdata);
-static void drop_neighbor_callback(struct aoi_space* space, void* handlers_data, void* userdata);
+static void free_aoi_space_callback(struct aoi_space *space, void* userdata);
+static void drop_object_callback(struct aoi_space* space, void* userdata);
+static void gen_neighbor_callback(struct aoi_space* space, void* userdata);
+static void drop_neighbor_callback(struct aoi_space* space, void* userdata);
 
 struct neighbor_list{
 	void* pair;
@@ -85,12 +85,11 @@ struct obj_moved {
 	struct obj_moved * prev;
 };
 
-struct aoi_handler_host {
-	void *datas;
-	uint32_t id;
-	user_callback *user_cb[32];
-	struct aoi_handler_host *next;
-	struct aoi_handler_host *prev;
+struct user_data {
+	char* id;
+	void* data;
+	struct user_data *next;
+	struct user_data *prev;
 };
 
 struct aoi_space {
@@ -110,9 +109,43 @@ struct aoi_space {
 
 	struct id_list * ids;
 	uint32_t id_begin;
-	uint32_t user_handlers_mask;
-	struct aoi_handler_host * user_handlers;
+
+	struct user_data* user_datas;
+	struct user_data* message_handlers;
 };
+
+//快速比较两个字符串是否相等
+static inline int
+str_eq(const char *a, const char *b) {
+	if(a != b && (a == NULL || b == NULL))
+	{
+		return 0;
+	}
+	
+	while (*a && *b) {
+		if (*a != *b) {
+			return 0;
+		}
+		++a;
+		++b;
+	}
+	return *a == 0 && *b == 0;
+}
+
+//拷贝字符串
+static inline char*
+str_dup(const char* str)
+{
+	if(str == NULL)
+	{
+		return NULL;
+	}
+	int len = strlen(str);
+	char* dup = malloc(len + 1);
+	memcpy(dup, str, len);
+	dup[len] = '\0';
+	return dup;
+}
 
 inline static void 
 copy_position(float des[3], float src[3]) {
@@ -122,28 +155,20 @@ copy_position(float des[3], float src[3]) {
 }
 
 static inline void
-fire_object_callback(struct aoi_space *space, struct object* obj, int type)
+fire_object_message(struct aoi_space *space, struct object* obj, char* message_id)
 {
 	struct _aoi_object_callback_data data;
 	data.obj = obj;
 	copy_position(data.pos, obj->position);
-	aoi_fire_user_callback(space, type, &data);
+	aoi_fire_message(space, message_id, &data);
 }
 
 static inline void
-fire_pair_callback(struct aoi_space *space, struct pair_list* p, int type)
+fire_pair_message(struct aoi_space *space, struct pair_list* p, char* message_id)
 {
 	struct _aoi_pair_callback_data data;
 	data.pair = p;
-	aoi_fire_user_callback(space, type, &data);
-}
-
-static inline void
-fire_free_space_callback(struct aoi_space *space)
-{
-	struct _free_aoi_space_data data;
-	data.space = space;
-	aoi_fire_user_callback(space, USER_HANDLER_TYPE_FREE_AOI_SPACE, &data);
+	aoi_fire_message(space, message_id, &data);
 }
 
 inline static uint64_t
@@ -289,7 +314,7 @@ map_query(struct aoi_space *space, struct map * m, uint32_t id) {
 			if (s->obj == NULL) {
 				s->obj = new_object(space, id);
 
-				fire_object_callback(space, s->obj, USER_HANDLER_TYPE_AOI_CREATE_OBJECT);
+				fire_object_message(space, s->obj, "_CREATE_OBJECT");
 			}
 			return s->obj;
 		}
@@ -301,7 +326,7 @@ map_query(struct aoi_space *space, struct map * m, uint32_t id) {
 	struct object * obj = new_object(space, id);
 	map_insert(space, m , id , obj);
 
-	fire_object_callback(space, obj, USER_HANDLER_TYPE_AOI_CREATE_OBJECT);
+	fire_object_message(space, obj, "_CREATE_OBJECT");
 	return obj;
 }
 
@@ -369,7 +394,7 @@ inline static void
 drop_object(struct aoi_space * space, struct object *obj) {
 	--obj->ref;
 	if (obj->ref <=0) {
-		fire_object_callback(space, obj, USER_HANDLER_TYPE_AOI_DELETE_OBJECT);
+		fire_object_message(space, obj, "_DELETE_OBJECT");
 
 		map_drop(space->object, obj->id);
 		delete_object(space, obj);
@@ -399,16 +424,15 @@ aoi_create(aoi_Alloc alloc, void *ud) {
 	space->ids = NULL;
 	space->id_begin = 1;
 	space->moved = NULL;
-	space->user_handlers = NULL;
-	space->user_handlers_mask = 0;
+	space->user_datas = NULL;
+	space->message_handlers = NULL;
 
-	aoi_add_handler_host(space, 0);
-	aoi_set_user_callback(space, 0, USER_HANDLER_TYPE_FREE_AOI_SPACE, free_aoi_space_callback);
+	aoi_push_message_handler(space, "_FREE_AOI_SPACE", free_aoi_space_callback);
 	//添加对象的回调
-	aoi_set_user_callback(space, 0, USER_HANDLER_TYPE_AOI_DELETE_OBJECT, drop_object_callback);
+	aoi_push_message_handler(space, "_CREATE_OBJECT", drop_object_callback);
 	//添加邻居列表的回调
-	aoi_set_user_callback(space, 0, USER_HANDLER_TYPE_AOI_GEN_PAIR, gen_neighbor_callback);
-	aoi_set_user_callback(space, 0, USER_HANDLER_TYPE_AOI_DROP_PAIR, drop_neighbor_callback);
+	aoi_push_message_handler(space, "_CREATE_PAIR", gen_neighbor_callback);
+	aoi_push_message_handler(space, "_DELETE_PAIR", drop_neighbor_callback);
 
 	return space;
 }
@@ -432,7 +456,9 @@ delete_set(struct aoi_space *space, struct object_set * set) {
 
 void 
 aoi_release(struct aoi_space *space) {
-	fire_free_space_callback(space);
+	struct _free_aoi_space_data data;
+	data.space = space;
+	aoi_fire_message(space, "_FREE_AOI_SPACE", &data);
 
 	map_foreach(space->object, delete_object, space);
 	map_delete(space, space->object);
@@ -442,14 +468,67 @@ aoi_release(struct aoi_space *space) {
 	delete_set(space,space->watcher_move);
 	delete_set(space,space->marker_move);
 
+	//释放moved链表
+	struct obj_moved* moved = space->moved;
+	space->moved = NULL;
+	while(moved)
+	{
+		struct obj_moved* next = moved->next;
+		space->alloc(space->alloc_ud, moved, sizeof(*moved));
+		moved = next;
+	}
+
+	//释放ids链表
 	struct id_list *ids = space->ids;
+	space->ids = NULL;
 	while(ids)
 	{
 		struct id_list *next = ids->next;
 		space->alloc(space->alloc_ud, ids, sizeof(*ids));
 		ids = next;
 	}
-	space->ids = NULL;
+
+	//释放user_datas链表
+	struct user_data* user_data = space->user_datas;
+	space->user_datas = NULL;
+	while(user_data)
+	{
+		struct user_data* next = user_data->next;
+		if(user_data->id)
+		{
+			free(user_data->id);
+		}
+		if(user_data->data)
+		{
+			space->alloc(space->alloc_ud, user_data->data, sizeof(user_data->data));
+		}
+		space->alloc(space->alloc_ud, user_data, sizeof(*user_data));
+		user_data = next;
+	}
+
+	//释放message_handlers链表
+	struct user_data* message_handler = space->message_handlers;
+	space->message_handlers = NULL;
+	while(message_handler)
+	{
+		struct user_data* next = message_handler->next;
+		if(message_handler->id)
+		{
+			free(message_handler->id);
+		}
+
+		//释放handler链表
+		struct user_data* handler = (struct user_data*)message_handler->data;
+		while(handler)
+		{
+			struct user_data* next = handler->next;
+			space->alloc(space->alloc_ud, handler, sizeof(*handler));
+			handler = next;
+		}
+
+		space->alloc(space->alloc_ud, message_handler, sizeof(*message_handler));
+		message_handler = next;
+	}
 
 	space->alloc(space->alloc_ud, space, sizeof(*space));
 }
@@ -556,7 +635,7 @@ flush_move_sign(struct aoi_space *space, struct object * obj)
 
 	copy_position(obj->last, obj->position);
 	obj->mode |= MODE_MOVE;
-	fire_object_callback(space, obj, USER_HANDLER_TYPE_AOI_MOVED);
+	fire_object_message(space, obj, "_OBJECT_MOVED");
 }
 
 inline static void
@@ -621,7 +700,7 @@ aoi_update(struct aoi_space * space , uint32_t id, const char * modestring , flo
 
 static void
 drop_pair(struct aoi_space * space, struct pair_list *p) {
-	fire_pair_callback(space, p, USER_HANDLER_TYPE_AOI_DROP_PAIR);
+	fire_pair_message(space, p, "_DELETE_PAIR");
 
 	drop_object(space, p->watcher);
 	drop_object(space, p->marker);
@@ -716,7 +795,7 @@ gen_pair(struct aoi_space * space, struct object * watcher, struct object * mark
 	p->id = key;
 	HASH_ADD(hh, space->hot, id, sizeof(p->id), p);
 
-	fire_pair_callback(space, p, USER_HANDLER_TYPE_AOI_GEN_PAIR);
+	fire_pair_message(space, p, "_CREATE_PAIR");
 }
 
 static void
@@ -936,167 +1015,162 @@ aoi_cancel_move(struct aoi_space *space, uint32_t id) {
 	}
 }
 
-inline static void
-update_user_handler_mask(struct aoi_space *space)
+inline static struct user_data*
+_get_user_data(struct user_data* list, char* data_id)
 {
-	space->user_handlers_mask = 0;
-	struct aoi_handler_host * p = space->user_handlers;
-	while(p)
+	struct user_data* data = list;
+	while(data)
 	{
-		for(int i = 0; i < sizeof(p->user_cb) / sizeof(user_callback*); ++i)
+		if(str_eq(data->id, data_id))
 		{
-			if(p->user_cb[i] != NULL)
-			{
-				space->user_handlers_mask |= (1 << i);
-			}
+			return data;
 		}
-		p = p->next;
-	}
-}
-
-inline static struct aoi_handler_host*
-get_user_callbacks(struct aoi_space *space, uint32_t hostid)
-{
-	assert(space != NULL);
-	struct aoi_handler_host * p = space->user_handlers;
-	while(p)
-	{
-		if(p->id == hostid)
-		{
-			return p;
-		}
-		p = p->next;
+		data = data->next;
 	}
 	return NULL;
 }
 
-void
-aoi_add_handler_host(struct aoi_space *space, uint32_t hostid)
+void*
+aoi_get_user_data(struct aoi_space *space, char* data_id)
 {
-	assert(space != NULL);
-	struct aoi_handler_host * p = space->user_handlers;
-	while(p)
+	struct user_data* data = _get_user_data(space->user_datas, data_id);
+	if(data)
 	{
-		if(p->id == hostid)
-		{
-			assert(0);
-			return;
-		}
-		p = p->next;
+		return data->data;
 	}
-
-	struct aoi_handler_host * handlers = space->alloc(space->alloc_ud, NULL, sizeof(struct aoi_handler_host));
-	memset(handlers, 0, sizeof(struct aoi_handler_host));
-	handlers->next = space->user_handlers;
-	handlers->id = hostid;
-	if(space->user_handlers)
-	{
-		space->user_handlers->prev = handlers;
-	}
-	space->user_handlers = handlers;
+	return NULL;
 }
 
 void*
-aoi_alloc_handler_host_data(struct aoi_space *space, uint32_t hostid, size_t sz)
+aoi_create_user_data(struct aoi_space *space, char* data_id, size_t sz)
 {
-	struct aoi_handler_host * callbacks = get_user_callbacks(space, hostid);
-	if(callbacks == NULL)
+	void* data = _get_user_data(space->user_datas, data_id);
+	assert(data == NULL);
+	if(data)
 	{
 		return NULL;
 	}
-	if(callbacks->datas != NULL)
-	{
-		space->alloc(space->alloc_ud, callbacks->datas, sz);
-		callbacks->datas = NULL;
-	}
-	callbacks->datas = space->alloc(space->alloc_ud, NULL, sz);
-	return callbacks->datas;
-}
 
-void*
-aoi_get_handler_hsot_data(struct aoi_space *space, uint32_t hostid)
-{
-	struct aoi_handler_host * callbacks = get_user_callbacks(space, hostid);
-	return callbacks ? callbacks->datas : NULL;
+	struct user_data* user_data = space->alloc(space->alloc_ud, NULL, sizeof(*user_data));
+	user_data->id = str_dup(data_id);
+	user_data->data = space->alloc(space->alloc_ud, NULL, sz);
+	user_data->next = space->user_datas;
+	user_data->prev = NULL;
+	if(space->user_datas)
+	{
+		space->user_datas->prev = user_data;
+	}
+	memset(user_data->data, 0, sz);
+	return user_data->data;
 }
 
 void
-aoi_del_user_handler_host(struct aoi_space *space, uint32_t hostid)
+aoi_push_message_handler(struct aoi_space *space, char* message_id, message_handler* cb)
 {
-	struct aoi_handler_host * callbacks = get_user_callbacks(space, hostid);
-	if(callbacks == NULL)
+	struct user_data* list = _get_user_data(space->message_handlers, message_id);
+	while (list)
+	{
+		if(list->data == cb)
+		{
+			return;
+		}
+		list = list->next;
+	}
+
+	if(list == NULL)
+	{
+		list = space->alloc(space->alloc_ud, NULL, sizeof(*list));
+		list->id = str_dup(message_id);
+		list->data = NULL;
+		list->prev = NULL;
+		list->next = space->message_handlers;
+		if(space->message_handlers)
+		{
+			space->message_handlers->prev = list;
+		}
+		space->message_handlers = list;
+	}
+
+	struct user_data* handler = space->alloc(space->alloc_ud, NULL, sizeof(*handler));
+	handler->data = cb;
+	handler->id = NULL;
+	handler->next = list->data;
+	handler->prev = NULL;
+	if(list->data)
+	{
+		((struct user_data*)list->data)->prev = handler;
+	}
+	list->data = handler;
+}
+
+void
+aoi_pop_message_handler(struct aoi_space *space, char* message_id, message_handler* cb)
+{
+	struct user_data* list = _get_user_data(space->message_handlers, message_id);
+	if(list == NULL)
 	{
 		return;
 	}
 
-	if(callbacks->prev)
+	struct user_data* handler = list->data;
+	while(handler)
 	{
-		callbacks->prev->next = callbacks->next;
+		if(handler->data == cb)
+		{
+			break;
+		}
+		handler = handler->next;
+	}
+
+	if(handler == NULL)
+	{
+		return;
+	}
+
+	if(handler->prev)
+	{
+		handler->prev->next = handler->next;
 	}
 	else
 	{
-		space->user_handlers = callbacks->next;
+		list->data = handler->next;
 	}
 
-	if(callbacks->next)
+	if(handler->next)
 	{
-		callbacks->next->prev = callbacks->prev;
+		handler->next->prev = handler->prev;
 	}
 
-	if(callbacks->datas)
-	{
-		space->alloc(space->alloc_ud, callbacks->datas, sizeof(callbacks->datas));
-	}
-
-	space->alloc(space->alloc_ud, callbacks, sizeof(struct aoi_handler_host));
-
-	update_user_handler_mask(space);
+	space->alloc(space->alloc_ud, handler, sizeof(*handler));
 }
 
 void
-aoi_set_user_callback(struct aoi_space *space, uint32_t hostid, int type, user_callback* cb)
+aoi_fire_message(struct aoi_space *space, char* message_id, void* userdata)
 {
-	struct aoi_handler_host * callbacks = get_user_callbacks(space, hostid);
-	if(callbacks == NULL)
+	struct user_data* list = _get_user_data(space->message_handlers, message_id);
+	if(list == NULL)
 	{
 		return;
 	}
 
-	if(type < 0 || type >= sizeof(callbacks->user_cb) / sizeof(user_callback*))
+	struct user_data* handler = list->data;
+	while(handler)
 	{
-		return;
-	}
-
-	callbacks->user_cb[type] = cb;
-
-	update_user_handler_mask(space);
-}
-
-void
-aoi_fire_user_callback(struct aoi_space *space, int type, void* userdata)
-{
-	if((space->user_handlers_mask & (1 << type)) == 0)
-	{
-		return;
-	}
-
-	struct aoi_handler_host * p = space->user_handlers;
-	while(p)
-	{
-		if(p->user_cb[type])
+		message_handler* cb = handler->data;
+		if(cb)
 		{
-			p->user_cb[type](space, p->datas, userdata);
+			cb(space, userdata);
 		}
-		p = p->next;
+		handler = handler->next;
 	}
 }
 
-static void free_aoi_space_callback(struct aoi_space *space, void* handlers_data, void* userdata)
+static void free_aoi_space_callback(struct aoi_space *space, void* userdata)
 {
-	aoi_set_user_callback(space, 0, USER_HANDLER_TYPE_AOI_DELETE_OBJECT, NULL);
+	aoi_pop_message_handler(space, "_DELETE_OBJECT", drop_object_callback);
 }
 
-static void drop_object_callback(struct aoi_space* space, void* handlers_data, void* userdata)
+static void drop_object_callback(struct aoi_space* space, void* userdata)
 {
 	struct object* obj = ((struct _aoi_object_callback_data*)userdata)->obj;
 	struct id_list *id = space->alloc(space->alloc_ud, NULL, sizeof(*id));
@@ -1110,18 +1184,24 @@ static void drop_object_callback(struct aoi_space* space, void* handlers_data, v
 	id->id = obj->id;
 }
 
-static void gen_neighbor_callback(struct aoi_space* space, void* handlers_data, void* userdata)
+static void gen_neighbor_callback(struct aoi_space* space, void* userdata)
 {
 	struct pair_list * pair = ((struct _aoi_pair_callback_data*)userdata)->pair;
 	grab_neighbor(space, pair->watcher, pair);
 	grab_neighbor(space, pair->marker, pair);
+
+	uint32_t ids[2] = {pair->watcher->id, pair->marker->id};
+	aoi_fire_message(space, "_NEIGHBOR_ENTER", ids);
 }
 
-static void drop_neighbor_callback(struct aoi_space* space, void* handlers_data, void* userdata)
+static void drop_neighbor_callback(struct aoi_space* space, void* userdata)
 {
 	struct pair_list * pair = ((struct _aoi_pair_callback_data*)userdata)->pair;
 	drop_neighbor(space, pair->watcher, pair);
 	drop_neighbor(space, pair->marker, pair);
+
+	uint32_t ids[2] = {pair->watcher->id, pair->marker->id};
+	aoi_fire_message(space, "_NEIGHBOR_EXIT", ids);
 }
 
 int aoi_begin_parse_neighbor(struct aoi_space *space, uint32_t id)
