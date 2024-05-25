@@ -1244,29 +1244,16 @@ int aoi_next_neighbor(struct aoi_space *space, uint32_t* id)
 	return 1;
 }
 
-int aoi_is_neighbor(struct aoi_space *space, uint32_t id)
+int aoi_is_pair(struct aoi_space *space, uint32_t id, uint32_t tid)
 {
-	if(space->neighbor_host == NULL || space->neighbor_host->id == id || space->neighbor_host->neighbors == NULL)
+	if(id == tid)
 	{
 		return 0;
 	}
-
-	uint32_t hostid = space->neighbor_host->id;
-	struct neighbor_list* neighbor = space->neighbor_host->neighbors;
-	while(neighbor)
-	{
-		struct pair_list* pair = (struct pair_list*)neighbor->pair;
-		if(pair->watcher->id == hostid && pair->marker->id == id)
-		{
-			return 1;
-		}
-		if(pair->watcher->id == id && pair->marker->id == hostid)
-		{
-			return 1;
-		}
-		neighbor = neighbor->next;
-	}
-	return 0;
+	struct pair_list* pair = NULL;
+	uint64_t key = gen_key(id, tid);
+	HASH_FIND(hh, space->hot, &key, sizeof(key), pair);
+	return pair != NULL ? 1 : 0;
 }
 
 int aoi_end_parse_neighbor(struct aoi_space *space)

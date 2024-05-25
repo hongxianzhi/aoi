@@ -60,7 +60,7 @@ char* aoi_current_message_id(struct aoi_space *space);
 //neighbor
 int aoi_begin_parse_neighbor(struct aoi_space *space, uint32_t id);
 int aoi_next_neighbor(struct aoi_space *space, uint32_t* id);
-int aoi_is_neighbor(struct aoi_space *space, uint32_t id);
 int aoi_end_parse_neighbor(struct aoi_space *space);
+int aoi_is_pair(struct aoi_space *space, uint32_t id, uint32_t tid);
 
 #endif
