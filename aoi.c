@@ -656,12 +656,6 @@ set_position(struct aoi_space *space, struct object * obj, float pos[3])
 }
 
 void
-aoi_position(struct aoi_space *space, uint32_t id, float pos[3])
-{
-	set_position(space, map_query(space, space->object, id), pos);
-}
-
-void
 aoi_update(struct aoi_space * space , uint32_t id, const char * modestring , float pos[3], float radius) {
 	struct object * obj = map_query(space, space->object,id);
 	int i;
