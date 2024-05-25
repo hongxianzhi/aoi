@@ -56,6 +56,7 @@ void* aoi_create_user_data(struct aoi_space *space, char* data_id, size_t sz);
 void aoi_push_message_handler(struct aoi_space *space, char* message_id, message_handler* cb);
 void aoi_pop_message_handler(struct aoi_space *space, char* message_id, message_handler* cb);
 void aoi_fire_message(struct aoi_space *space, char* message_id, void* userdata);
+char* aoi_current_message_id(struct aoi_space *space);
 
 //neighbor
 int aoi_begin_parse_neighbor(struct aoi_space *space, uint32_t id);

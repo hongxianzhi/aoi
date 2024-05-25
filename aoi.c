@@ -111,6 +111,7 @@ struct aoi_space {
 	uint32_t id_begin;
 
 	struct user_data* user_datas;
+	char* current_message_id;
 	struct user_data* message_handlers;
 };
 
@@ -425,6 +426,7 @@ aoi_create(aoi_Alloc alloc, void *ud) {
 	space->id_begin = 1;
 	space->moved = NULL;
 	space->user_datas = NULL;
+	space->current_message_id = NULL;
 	space->message_handlers = NULL;
 
 	aoi_push_message_handler(space, "_FREE_AOI_SPACE", free_aoi_space_callback);
@@ -1159,6 +1161,8 @@ aoi_fire_message(struct aoi_space *space, char* message_id, void* userdata)
 		return;
 	}
 
+	char* current_message_id = space->current_message_id;
+	space->current_message_id = message_id;
 	struct user_data* handler = list->data;
 	while(handler)
 	{
@@ -1169,6 +1173,13 @@ aoi_fire_message(struct aoi_space *space, char* message_id, void* userdata)
 		}
 		handler = handler->next;
 	}
+	space->current_message_id = current_message_id;
+}
+
+char*
+aoi_current_message_id(struct aoi_space *space)
+{
+	return space->current_message_id;
 }
 
 static void free_aoi_space_callback(struct aoi_space *space, void* userdata)
