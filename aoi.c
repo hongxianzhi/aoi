@@ -85,11 +85,16 @@ struct obj_moved {
 	struct obj_moved * prev;
 };
 
-struct user_data {
+struct data_link_list {
+	void* data;
+	struct data_link_list *next;
+	struct data_link_list *prev;
+};
+
+struct user_data_dict {
 	char* id;
 	void* data;
-	struct user_data *next;
-	struct user_data *prev;
+	UT_hash_handle hh;
 };
 
 struct aoi_space {
@@ -110,9 +115,9 @@ struct aoi_space {
 	struct id_list * ids;
 	uint32_t id_begin;
 
-	struct user_data* user_datas;
+	struct user_data_dict* user_datas;
 	char* current_message_id;
-	struct user_data* message_handlers;
+	struct user_data_dict* message_handlers;
 };
 
 //快速比较两个字符串是否相等
@@ -146,6 +151,14 @@ str_dup(const char* str)
 	memcpy(dup, str, len);
 	dup[len] = '\0';
 	return dup;
+}
+
+inline static struct user_data_dict*
+_get_user_data(struct user_data_dict* dict, char* data_id)
+{
+	struct user_data_dict* result = NULL;
+	HASH_FIND_STR(dict, data_id, result);
+	return result;
 }
 
 inline static void 
@@ -490,46 +503,32 @@ aoi_release(struct aoi_space *space) {
 		ids = next;
 	}
 
-	//释放user_datas链表
-	struct user_data* user_data = space->user_datas;
-	space->user_datas = NULL;
-	while(user_data)
-	{
-		struct user_data* next = user_data->next;
-		if(user_data->id)
+	//释放user_datas字典
+	struct user_data_dict * p = NULL;
+	struct user_data_dict * tmp = NULL;
+	HASH_ITER(hh, space->user_datas, p, tmp) {
+		HASH_DEL(space->user_datas, p);
+		free(p->id);
+		if(p->data)
 		{
-			free(user_data->id);
+			space->alloc(space->alloc_ud, p->data, sizeof(p->data));
 		}
-		if(user_data->data)
-		{
-			space->alloc(space->alloc_ud, user_data->data, sizeof(user_data->data));
-		}
-		space->alloc(space->alloc_ud, user_data, sizeof(*user_data));
-		user_data = next;
+		space->alloc(space->alloc_ud, p, sizeof(*p));
 	}
 
-	//释放message_handlers链表
-	struct user_data* message_handler = space->message_handlers;
-	space->message_handlers = NULL;
-	while(message_handler)
-	{
-		struct user_data* next = message_handler->next;
-		if(message_handler->id)
-		{
-			free(message_handler->id);
-		}
-
+	//释放message_handlers字典
+	HASH_ITER(hh, space->message_handlers, p, tmp) {
+		HASH_DEL(space->message_handlers, p);
+		free(p->id);
 		//释放handler链表
-		struct user_data* handler = (struct user_data*)message_handler->data;
+		struct data_link_list* handler = (struct data_link_list*)p->data;
 		while(handler)
 		{
-			struct user_data* next = handler->next;
+			struct data_link_list* next = handler->next;
 			space->alloc(space->alloc_ud, handler, sizeof(*handler));
 			handler = next;
 		}
-
-		space->alloc(space->alloc_ud, message_handler, sizeof(*message_handler));
-		message_handler = next;
+		space->alloc(space->alloc_ud, p, sizeof(*p));
 	}
 
 	space->alloc(space->alloc_ud, space, sizeof(*space));
@@ -1012,28 +1011,13 @@ aoi_cancel_move(struct aoi_space *space, uint32_t id) {
 	}
 }
 
-inline static struct user_data*
-_get_user_data(struct user_data* list, char* data_id)
-{
-	struct user_data* data = list;
-	while(data)
-	{
-		if(str_eq(data->id, data_id))
-		{
-			return data;
-		}
-		data = data->next;
-	}
-	return NULL;
-}
-
 void*
 aoi_get_user_data(struct aoi_space *space, char* data_id)
 {
-	struct user_data* data = _get_user_data(space->user_datas, data_id);
-	if(data)
+	struct user_data_dict* dict = _get_user_data(space->user_datas, data_id);
+	if(dict)
 	{
-		return data->data;
+		return dict->data;
 	}
 	return NULL;
 }
@@ -1041,34 +1025,24 @@ aoi_get_user_data(struct aoi_space *space, char* data_id)
 void*
 aoi_create_user_data(struct aoi_space *space, char* data_id, size_t sz)
 {
-	void* data = _get_user_data(space->user_datas, data_id);
-	assert(data == NULL);
-	if(data)
-	{
-		return NULL;
-	}
-
-	struct user_data* user_data = space->alloc(space->alloc_ud, NULL, sizeof(*user_data));
-	user_data->id = str_dup(data_id);
-	user_data->data = space->alloc(space->alloc_ud, NULL, sz);
-	user_data->next = space->user_datas;
-	user_data->prev = NULL;
-	if(space->user_datas)
-	{
-		space->user_datas->prev = user_data;
-	}
-	memset(user_data->data, 0, sz);
-	space->user_datas = user_data;
-	return user_data->data;
+	struct user_data_dict* dict = _get_user_data(space->user_datas, data_id);
+	assert(dict == NULL);
+	
+	dict = space->alloc(space->alloc_ud, NULL, sizeof(*dict));
+	dict->id = str_dup(data_id);
+	dict->data = space->alloc(space->alloc_ud, NULL, sz);
+	memset(dict->data, 0, sz);
+	HASH_ADD_STR(space->user_datas, id, dict);
+	return dict->data;
 }
 
 void
 aoi_push_message_handler(struct aoi_space *space, char* message_id, message_handler* cb)
 {
-	struct user_data* list = _get_user_data(space->message_handlers, message_id);
-	if (list)
+	struct user_data_dict* dict = _get_user_data(space->message_handlers, message_id);
+	if (dict)
 	{
-		struct user_data* handlers = list->data;
+		struct data_link_list* handlers = dict->data;
 		while(handlers)
 		{
 			if(handlers->data == cb)
@@ -1079,42 +1053,45 @@ aoi_push_message_handler(struct aoi_space *space, char* message_id, message_hand
 		}
 	}
 
-	if(list == NULL)
+	if(dict == NULL)
 	{
-		list = space->alloc(space->alloc_ud, NULL, sizeof(*list));
-		list->id = str_dup(message_id);
-		list->data = NULL;
-		list->prev = NULL;
-		list->next = space->message_handlers;
-		if(space->message_handlers)
-		{
-			space->message_handlers->prev = list;
-		}
-		space->message_handlers = list;
+		dict = space->alloc(space->alloc_ud, NULL, sizeof(*dict));
+		dict->id = str_dup(message_id);
+		dict->data = NULL;
+		HASH_ADD_STR(space->message_handlers, id, dict);
 	}
 
-	struct user_data* handler = space->alloc(space->alloc_ud, NULL, sizeof(*handler));
+	struct data_link_list* handler = space->alloc(space->alloc_ud, NULL, sizeof(*handler));
 	handler->data = cb;
-	handler->id = NULL;
-	handler->next = list->data;
+	handler->next = NULL;
 	handler->prev = NULL;
-	if(list->data)
+	//添加到链表末尾
+	if(dict->data == NULL)
 	{
-		((struct user_data*)list->data)->prev = handler;
+		dict->data = handler;
 	}
-	list->data = handler;
+	else
+	{
+		struct data_link_list* last = dict->data;
+		while(last->next)
+		{
+			last = last->next;
+		}
+		last->next = handler;
+		handler->prev = last;
+	}
 }
 
 void
 aoi_pop_message_handler(struct aoi_space *space, char* message_id, message_handler* cb)
 {
-	struct user_data* list = _get_user_data(space->message_handlers, message_id);
-	if(list == NULL)
+	struct user_data_dict* dict = _get_user_data(space->message_handlers, message_id);
+	if(dict == NULL)
 	{
 		return;
 	}
 
-	struct user_data* handler = list->data;
+	struct data_link_list* handler = dict->data;
 	while(handler)
 	{
 		if(handler->data == cb)
@@ -1135,7 +1112,7 @@ aoi_pop_message_handler(struct aoi_space *space, char* message_id, message_handl
 	}
 	else
 	{
-		list->data = handler->next;
+		dict->data = handler->next;
 	}
 
 	if(handler->next)
@@ -1149,15 +1126,15 @@ aoi_pop_message_handler(struct aoi_space *space, char* message_id, message_handl
 void
 aoi_fire_message(struct aoi_space *space, char* message_id, void* userdata)
 {
-	struct user_data* list = _get_user_data(space->message_handlers, message_id);
-	if(list == NULL)
+	struct user_data_dict* dict = _get_user_data(space->message_handlers, message_id);
+	if(dict == NULL)
 	{
 		return;
 	}
 
 	char* current_message_id = space->current_message_id;
 	space->current_message_id = message_id;
-	struct user_data* handler = list->data;
+	struct data_link_list* handler = dict->data;
 	while(handler)
 	{
 		message_handler* cb = handler->data;
