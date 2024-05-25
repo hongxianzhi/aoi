@@ -173,6 +173,7 @@ fire_object_message(struct aoi_space *space, struct object* obj, char* message_i
 {
 	struct _aoi_object_callback_data data;
 	data.obj = obj;
+	data.radius = obj->radius;
 	copy_position(data.pos, obj->position);
 	aoi_fire_message(space, message_id, &data);
 }

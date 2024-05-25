@@ -37,6 +37,7 @@ typedef struct _update_callback_data {
 typedef struct _aoi_object_callback_data {
 	void* obj;
 	float pos[3];
+	float radius;
 } aoi_create_object_data;
 
 //_CREATE_PAIR
