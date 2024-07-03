@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-//Ìí¼Óµ¼³öºêAOI_BUILD_AS_DLL£¬ AOI_API
+//æ·»åŠ å¯¼å‡ºå®AOI_BUILD_AS_DLLï¼Œ AOI_API
 #if defined(_WIN32)
 	#if defined(AOI_BUILD_AS_DLL)	/* { */
 		#define AOI_API __declspec(dllexport)
@@ -42,7 +42,7 @@ AOI_API void aoi_apply_move(struct aoi_space *space, float delta);
 AOI_API void aoi_cancel_move(struct aoi_space *space, uint32_t id);
 
 //user callback
-//Ô¤¶¨ÒåÊÂ¼şÀàĞÍ¡¢Êı¾İ½á¹¹
+//é¢„å®šä¹‰äº‹ä»¶ç±»å‹ã€æ•°æ®ç»“æ„
 #define USER_HANDLER_TYPE_UPDATE 0
 typedef struct _update_callback_data {
 	float delat;
@@ -52,16 +52,20 @@ typedef struct _update_callback_data {
 //_DELETE_OBJECT
 //_OBJECT_MOVED
 typedef struct _aoi_object_callback_data {
-	void* obj;
+	int id;
 	float pos[3];
 	float radius;
-} aoi_create_object_data;
+} aoi_object_data;
 
 //_CREATE_PAIR
 //_DELETE_PAIR
 typedef struct _aoi_pair_callback_data {
 	void* pair;
-} aoi_create_pair_data;
+	uint64_t id;
+	float dis2;
+	int watcher;
+	int marker;
+} aoi_pair_data;
 
 //_FREE_AOI_SPACE
 typedef struct _free_aoi_space_data {
@@ -80,6 +84,9 @@ AOI_API int aoi_begin_parse_neighbor(struct aoi_space *space, uint32_t id);
 AOI_API int aoi_next_neighbor(struct aoi_space *space, uint32_t* id);
 AOI_API int aoi_end_parse_neighbor(struct aoi_space *space);
 AOI_API int aoi_is_pair(struct aoi_space *space, uint32_t id, uint32_t tid);
+
+AOI_API char* str_dup(const char* str);
+AOI_API int str_eq(const char *a, const char *b);
 
 #if defined(__cplusplus)
 }

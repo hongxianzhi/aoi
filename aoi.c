@@ -121,8 +121,7 @@ struct aoi_space {
 };
 
 //快速比较两个字符串是否相等
-static inline int
-str_eq(const char *a, const char *b) {
+int str_eq(const char *a, const char *b) {
 	if(a != b && (a == NULL || b == NULL))
 	{
 		return 0;
@@ -139,8 +138,7 @@ str_eq(const char *a, const char *b) {
 }
 
 //拷贝字符串
-static inline char*
-str_dup(const char* str)
+char* str_dup(const char* str)
 {
 	if(str == NULL)
 	{
@@ -172,7 +170,7 @@ static inline void
 fire_object_message(struct aoi_space *space, struct object* obj, char* message_id)
 {
 	struct _aoi_object_callback_data data;
-	data.obj = obj;
+	data.id = obj->id;
 	data.radius = obj->radius;
 	copy_position(data.pos, obj->position);
 	aoi_fire_message(space, message_id, &data);
@@ -183,6 +181,10 @@ fire_pair_message(struct aoi_space *space, struct pair_list* p, char* message_id
 {
 	struct _aoi_pair_callback_data data;
 	data.pair = p;
+	data.id = p->id;
+	data.dis2 = p->dis2;
+	data.watcher = p->watcher->id;
+	data.marker = p->marker->id;
 	aoi_fire_message(space, message_id, &data);
 }
 
@@ -1161,16 +1163,16 @@ static void free_aoi_space_callback(struct aoi_space *space, void* userdata)
 
 static void drop_object_callback(struct aoi_space* space, void* userdata)
 {
-	struct object* obj = ((struct _aoi_object_callback_data*)userdata)->obj;
+	int objid = ((struct _aoi_object_callback_data*)userdata)->id;
 	struct id_list *id = space->alloc(space->alloc_ud, NULL, sizeof(*id));
-	id->id = obj->id;
+	id->id = objid;
 	id->next = space->ids;
 	space->ids = id;
 	if(id->next)
 	{
 		id->next->prev = id;
 	}
-	id->id = obj->id;
+	id->id = objid;
 }
 
 static void gen_neighbor_callback(struct aoi_space* space, void* userdata)
@@ -1190,7 +1192,7 @@ static void drop_neighbor_callback(struct aoi_space* space, void* userdata)
 	drop_neighbor(space, pair->marker, pair);
 
 	uint32_t ids[2] = {pair->watcher->id, pair->marker->id};
-	aoi_fire_message(space, "_NEIGHBOR_EXIT", ids);
+	aoi_fire_message(space, "_NEIGHBOR_LEAVE", ids);
 }
 
 int aoi_begin_parse_neighbor(struct aoi_space *space, uint32_t id)
