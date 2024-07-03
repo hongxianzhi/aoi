@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#define AOI_META_DATA "AOI_META_DATA"
+
 #if defined(__cplusplus)
 extern "C" {
 #endif
@@ -66,12 +68,12 @@ typedef struct _free_aoi_space_data {
 	struct aoi_space* space;
 } free_aoi_space_data;
 
-AOI_API void* aoi_get_user_data(struct aoi_space *space, char* data_id);
-AOI_API void* aoi_create_user_data(struct aoi_space *space, char* data_id, size_t sz);
-AOI_API void aoi_push_message_handler(struct aoi_space *space, char* message_id, message_handler* cb);
-AOI_API void aoi_pop_message_handler(struct aoi_space *space, char* message_id, message_handler* cb);
-AOI_API void aoi_fire_message(struct aoi_space *space, char* message_id, void* userdata);
-AOI_API char* aoi_current_message_id(struct aoi_space *space);
+AOI_API void* aoi_get_user_data(struct aoi_space *space, const char* data_id);
+AOI_API void* aoi_create_user_data(struct aoi_space *space, const char* data_id, size_t sz);
+AOI_API void aoi_push_message_handler(struct aoi_space *space, const char* message_id, message_handler* cb);
+AOI_API void aoi_pop_message_handler(struct aoi_space *space, const char* message_id, message_handler* cb);
+AOI_API void aoi_fire_message(struct aoi_space *space, const char* message_id, void* userdata);
+AOI_API const char* aoi_current_message_id(struct aoi_space *space);
 
 //neighbor
 AOI_API int aoi_begin_parse_neighbor(struct aoi_space *space, uint32_t id);

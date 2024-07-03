@@ -116,7 +116,7 @@ struct aoi_space {
 	uint32_t id_begin;
 
 	struct user_data_dict* user_datas;
-	char* current_message_id;
+	const char* current_message_id;
 	struct user_data_dict* message_handlers;
 };
 
@@ -154,7 +154,7 @@ str_dup(const char* str)
 }
 
 inline static struct user_data_dict*
-_get_user_data(struct user_data_dict* dict, char* data_id)
+_get_user_data(struct user_data_dict* dict, const char* data_id)
 {
 	struct user_data_dict* result = NULL;
 	HASH_FIND_STR(dict, data_id, result);
@@ -1013,7 +1013,7 @@ aoi_cancel_move(struct aoi_space *space, uint32_t id) {
 }
 
 void*
-aoi_get_user_data(struct aoi_space *space, char* data_id)
+aoi_get_user_data(struct aoi_space *space, const char* data_id)
 {
 	struct user_data_dict* dict = _get_user_data(space->user_datas, data_id);
 	if(dict)
@@ -1024,7 +1024,7 @@ aoi_get_user_data(struct aoi_space *space, char* data_id)
 }
 
 void*
-aoi_create_user_data(struct aoi_space *space, char* data_id, size_t sz)
+aoi_create_user_data(struct aoi_space *space, const char* data_id, size_t sz)
 {
 	struct user_data_dict* dict = _get_user_data(space->user_datas, data_id);
 	assert(dict == NULL);
@@ -1038,7 +1038,7 @@ aoi_create_user_data(struct aoi_space *space, char* data_id, size_t sz)
 }
 
 void
-aoi_push_message_handler(struct aoi_space *space, char* message_id, message_handler* cb)
+aoi_push_message_handler(struct aoi_space *space, const char* message_id, message_handler* cb)
 {
 	struct user_data_dict* dict = _get_user_data(space->message_handlers, message_id);
 	if (dict)
@@ -1084,7 +1084,7 @@ aoi_push_message_handler(struct aoi_space *space, char* message_id, message_hand
 }
 
 void
-aoi_pop_message_handler(struct aoi_space *space, char* message_id, message_handler* cb)
+aoi_pop_message_handler(struct aoi_space *space, const char* message_id, message_handler* cb)
 {
 	struct user_data_dict* dict = _get_user_data(space->message_handlers, message_id);
 	if(dict == NULL)
@@ -1125,7 +1125,7 @@ aoi_pop_message_handler(struct aoi_space *space, char* message_id, message_handl
 }
 
 void
-aoi_fire_message(struct aoi_space *space, char* message_id, void* userdata)
+aoi_fire_message(struct aoi_space *space, const char* message_id, void* userdata)
 {
 	struct user_data_dict* dict = _get_user_data(space->message_handlers, message_id);
 	if(dict == NULL)
@@ -1133,7 +1133,7 @@ aoi_fire_message(struct aoi_space *space, char* message_id, void* userdata)
 		return;
 	}
 
-	char* current_message_id = space->current_message_id;
+	const char* current_message_id = space->current_message_id;
 	space->current_message_id = message_id;
 	struct data_link_list* handler = dict->data;
 	while(handler)
@@ -1148,7 +1148,7 @@ aoi_fire_message(struct aoi_space *space, char* message_id, void* userdata)
 	space->current_message_id = current_message_id;
 }
 
-char*
+const char*
 aoi_current_message_id(struct aoi_space *space)
 {
 	return space->current_message_id;
