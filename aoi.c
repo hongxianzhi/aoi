@@ -814,7 +814,7 @@ aoi_message(struct aoi_space *space) {
 	space->watcher_move->number = 0;
 	space->marker_static->number = 0;
 	space->marker_move->number = 0;
-	map_foreach(space->object, set_push , space);	
+	map_foreach(space->object, set_push , space);
 	gen_pair_list(space, space->watcher_static, space->marker_move);
 	gen_pair_list(space, space->watcher_move, space->marker_static);
 	gen_pair_list(space, space->watcher_move, space->marker_move);
@@ -1017,6 +1017,11 @@ aoi_cancel_move(struct aoi_space *space, uint32_t id) {
 void*
 aoi_get_user_data(struct aoi_space *space, const char* data_id)
 {
+	if(space == NULL)
+	{
+		return NULL;
+	}
+
 	struct user_data_dict* dict = _get_user_data(space->user_datas, data_id);
 	if(dict)
 	{
@@ -1028,6 +1033,11 @@ aoi_get_user_data(struct aoi_space *space, const char* data_id)
 void*
 aoi_create_user_data(struct aoi_space *space, const char* data_id, size_t sz)
 {
+	if(space == NULL)
+	{
+		return NULL;
+	}
+	
 	struct user_data_dict* dict = _get_user_data(space->user_datas, data_id);
 	assert(dict == NULL);
 	
