@@ -1205,6 +1205,18 @@ static void drop_neighbor_callback(struct aoi_space* space, void* userdata)
 	aoi_fire_message(space, "_NEIGHBOR_LEAVE", ids);
 }
 
+int aoi_get_object_position(struct aoi_space *space, uint32_t id, float* pos, int* mode)
+{
+	struct object* obj = map_query(space, space->object, id);
+	if(obj == NULL)
+	{
+		return 0;
+	}
+	*mode = obj->mode;
+	copy_position(pos, obj->position);
+	return 1;
+}
+
 int aoi_begin_parse_neighbor(struct aoi_space *space, uint32_t id)
 {
 	struct object* obj = map_query(space, space->object, id);

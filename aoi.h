@@ -79,6 +79,8 @@ AOI_API void aoi_pop_message_handler(struct aoi_space *space, const char* messag
 AOI_API void aoi_fire_message(struct aoi_space *space, const char* message_id, void* userdata);
 AOI_API const char* aoi_current_message_id(struct aoi_space *space);
 
+AOI_API int aoi_get_object_position(struct aoi_space *space, uint32_t id, float* pos, int* mode);
+
 //neighbor
 AOI_API int aoi_begin_parse_neighbor(struct aoi_space *space, uint32_t id);
 AOI_API int aoi_next_neighbor(struct aoi_space *space, uint32_t* id);
