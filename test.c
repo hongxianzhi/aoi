@@ -104,7 +104,7 @@ main() {
 	struct alloc_cookie cookie = { 0,0,0 };
 	struct aoi_space * space = aoi_create(my_alloc , &cookie);
 
-	aoi_push_message_handler(space, "_NEIGHBOR_ENTER", message);
+	aoi_push_message_handler(space, ID_NEIGHBOR_ENTER, message);
 
 	test(space);
 

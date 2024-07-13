@@ -4,7 +4,21 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#define MODE_WATCHER 1
+#define MODE_MARKER 2
+#define MODE_MOVE 4
+#define MODE_DROP 8
+
 #define AOI_META_DATA "AOI_META_DATA"
+#define ID_FREE_AOI_SPACE "_FREE_AOI_SPACE"
+#define ID_CREATE_OBJECT "_CREATE_OBJECT"
+#define ID_DELETE_OBJECT "_DELETE_OBJECT"
+#define ID_OBJECT_MOVED "_OBJECT_MOVED"
+#define ID_CREATE_PAIR "_CREATE_PAIR"
+#define ID_DELETE_PAIR "_DELETE_PAIR"
+#define ID_NEIGHBOR_ENTER "_NEIGHBOR_ENTER"
+#define ID_NEIGHBOR_LEAVE "_NEIGHBOR_LEAVE"
+#define ID_UPDATE "_UPDATE"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -27,9 +41,10 @@ typedef void * (*aoi_Alloc)(void *ud, void * ptr, size_t sz);
 typedef void (message_handler)(struct aoi_space* space, void* userdata);
 
 AOI_API struct aoi_space * aoi_create(aoi_Alloc alloc, void *ud);
-AOI_API struct aoi_space * aoi_new();
+AOI_API struct aoi_space * aoi_new(int w, int h, float f);
 AOI_API void aoi_release(struct aoi_space *);
 AOI_API int aoi_gen_id(struct aoi_space *space);
+AOI_API void aoi_get_size(struct aoi_space *space, int *w, int *h, float *f);
 
 // w(atcher) m(arker) d(rop)
 AOI_API void aoi_update(struct aoi_space * space , uint32_t id, const char * mode , float pos[3], float radius);
@@ -44,33 +59,35 @@ AOI_API void aoi_cancel_move(struct aoi_space *space, uint32_t id);
 //user callback
 //预定义事件类型、数据结构
 #define USER_HANDLER_TYPE_UPDATE 0
-typedef struct _update_callback_data {
+typedef struct update_callback_data {
 	float delat;
 } update_callback_data;
 
 //_CREATE_OBJECT
 //_DELETE_OBJECT
-//_OBJECT_MOVED
-typedef struct _aoi_object_callback_data {
+typedef struct aoi_object_data {
 	int id;
-	float pos[3];
+	float last[3];
 	float radius;
 } aoi_object_data;
 
+//_OBJECT_MOVED
+typedef struct object_moved_data {
+	int id;
+	float last[3];
+	float prev[3];
+	float radius;
+} object_moved_data;
+
 //_CREATE_PAIR
 //_DELETE_PAIR
-typedef struct _aoi_pair_callback_data {
+typedef struct aoi_pair_data {
 	void* pair;
 	uint64_t id;
 	float dis2;
 	int watcher;
 	int marker;
 } aoi_pair_data;
-
-//_FREE_AOI_SPACE
-typedef struct _free_aoi_space_data {
-	struct aoi_space* space;
-} free_aoi_space_data;
 
 AOI_API void* aoi_get_user_data(struct aoi_space *space, const char* data_id);
 AOI_API void* aoi_create_user_data(struct aoi_space *space, const char* data_id, size_t sz);
