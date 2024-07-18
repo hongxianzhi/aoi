@@ -44,10 +44,17 @@ AOI_API struct aoi_space * aoi_create(aoi_Alloc alloc, void *ud);
 AOI_API struct aoi_space * aoi_new(int w, int h, float f);
 AOI_API void aoi_release(struct aoi_space *);
 AOI_API int aoi_gen_id(struct aoi_space *space);
+AOI_API int aoi_make_grid_id(struct aoi_space *space, int x, int y);
+AOI_API int aoi_break_grid_id(struct aoi_space *space, int id, int *x, int *y);
 AOI_API void aoi_get_size(struct aoi_space *space, int *w, int *h, float *f);
+AOI_API int aoi_begin_parse_grid(struct aoi_space *space, int grid);
+AOI_API int aoi_next_object(struct aoi_space *space, uint32_t* id);
+AOI_API int aoi_end_parse_grid(struct aoi_space *space);
 
-// w(atcher) m(arker) d(rop)
-AOI_API void aoi_update(struct aoi_space * space , uint32_t id, const char * mode , float pos[3], float radius);
+AOI_API void aoi_insert(struct aoi_space* space, uint32_t id, uint64_t mask, float pos[3], float radius);
+AOI_API int aoi_erase(struct aoi_space* space, uint32_t id);
+AOI_API void aoi_radius(struct aoi_space* space, uint32_t id, float r);
+AOI_API void aoi_location(struct aoi_space* space, uint32_t id, float pos[3]);
 AOI_API void aoi_message(struct aoi_space *space);
 
 //move
@@ -99,6 +106,7 @@ AOI_API const char* aoi_current_message_id(struct aoi_space *space);
 AOI_API int aoi_get_object_position(struct aoi_space *space, uint32_t id, float* pos, int* mode);
 
 //neighbor
+AOI_API int aoi_has_neighbor(struct aoi_space *space, uint32_t id, int mask);
 AOI_API int aoi_begin_parse_neighbor(struct aoi_space *space, uint32_t id);
 AOI_API int aoi_next_neighbor(struct aoi_space *space, uint32_t* id);
 AOI_API int aoi_end_parse_neighbor(struct aoi_space *space);

@@ -13,6 +13,8 @@
 
 #define INVALID_ID (~0)
 #define PRE_ALLOC 16
+#define MODE_WATCHER_MASK (((uint64_t)1) << 32)
+#define MODE_MARKER_MASK 0xFFFFFFFF
 #define AOI_RADIS2 (AOI_RADIS * AOI_RADIS)
 #define DIST2(p1,p2) ((p1[0] - p2[0]) * (p1[0] - p2[0]) + (p1[1] - p2[1]) * (p1[1] - p2[1]) + (p1[2] - p2[2]) * (p1[2] - p2[2]))
 
@@ -20,8 +22,9 @@ struct pair_list;
 static void drop_pair(struct aoi_space * space, struct pair_list *p);
 static void free_aoi_space_callback(struct aoi_space *space, void* userdata);
 static void drop_object_callback(struct aoi_space* space, void* userdata);
-static void gen_neighbor_callback(struct aoi_space* space, void* userdata);
-static void drop_neighbor_callback(struct aoi_space* space, void* userdata);
+static void gen_pair_callback(struct aoi_space* space, void* userdata);
+static void drop_pair_callback(struct aoi_space* space, void* userdata);
+static void set_push_back(struct aoi_space* space, struct object_set* set, struct object* obj);
 
 struct neighbor_list{
 	void* pair;
@@ -32,7 +35,9 @@ struct neighbor_list{
 struct object {
 	int ref;
 	uint32_t id;
+	uint64_t mask;
 	int mode;
+	int neighbor_mask;
 	float last[3];
 	float position[3];
 	float radius;
@@ -52,6 +57,7 @@ struct pair_list {
 	struct object * marker;
 	UT_hash_handle hh;
 };
+typedef void (pair_parser)(void* ud, struct pair_list* pair);
 
 struct map_slot {
 	uint32_t id;
@@ -94,6 +100,13 @@ struct free_ids
 	int capacity;
 };
 
+struct grid_objects
+{
+	int grid;
+	struct object_set* objects;
+	UT_hash_handle hh;
+};
+
 struct aoi_space {
 	int w;
 	int h;
@@ -111,6 +124,7 @@ struct aoi_space {
 	//parse neighbor
 	struct object * neighbor_host;
 	struct neighbor_list * neighbor;
+	struct object* object_current;
 
 	struct free_ids * frees;
 	uint32_t id_begin;
@@ -118,6 +132,11 @@ struct aoi_space {
 	struct user_data_dict* user_datas;
 	const char* current_message_id;
 	struct user_data_dict* message_handlers;
+
+	//grid objects
+	struct grid_objects* grid_objects;
+	struct grid_objects* grid_objects_parsing;
+	int grid_objects_parsing_index;
 };
 
 //快速比较两个字符串是否相等
@@ -149,6 +168,37 @@ char* str_dup(const char* str)
 	memcpy(dup, str, len);
 	dup[len] = '\0';
 	return dup;
+}
+
+inline void parse_neighbors(struct object* obj, pair_parser cb, void* ud)
+{
+	if (obj == NULL || obj->neighbors == NULL)
+	{
+		return;
+	}
+
+	int neighbor_mask = 0;
+	struct neighbor_list* p = obj->neighbors;
+	while (p)
+	{
+		struct neighbor_list* next = p->next;
+		struct pair_list* pair = p->pair;
+		if (cb)
+		{
+			cb(ud, pair);
+		}
+
+		if (pair->watcher == obj)
+		{
+			neighbor_mask |= (pair->marker->mask & 0xFFFFFFFF);
+		}
+		else
+		{
+			neighbor_mask |= (pair->watcher->mask & 0xFFFFFFFF);
+		}
+		p = next;
+	}
+	obj->neighbor_mask = neighbor_mask;
 }
 
 inline static struct user_data_dict*
@@ -245,11 +295,9 @@ drop_neighbor(struct aoi_space *space, struct object* obj, void* pair)
 static struct object *
 new_object(struct aoi_space * space, uint32_t id) {
 	struct object * obj = space->alloc(space->alloc_ud, NULL, sizeof(*obj));
+	memset(obj, 0, sizeof(*obj));
 	obj->ref = 1;
 	obj->id = id;
-	obj->mode = 0;
-	obj->radius = 0;
-	obj->neighbors = NULL;
 	return obj;
 }
 
@@ -324,14 +372,12 @@ rehash(struct aoi_space * space, struct map *m) {
 }
 
 static struct object *
-map_query(struct aoi_space *space, struct map * m, uint32_t id) {
+map_query(struct aoi_space *space, struct map * m, uint32_t id, int create) {
 	struct map_slot *s = mainposition(m, id);
 	for (;;) {
 		if (s->id == id) {
-			if (s->obj == NULL) {
+			if (s->obj == NULL && create) {
 				s->obj = new_object(space, id);
-
-				fire_object_message(space, s->obj, ID_CREATE_OBJECT);
 			}
 			return s->obj;
 		}
@@ -340,10 +386,13 @@ map_query(struct aoi_space *space, struct map * m, uint32_t id) {
 		}
 		s=&m->slot[s->next];
 	}
-	struct object * obj = new_object(space, id);
-	map_insert(space, m , id , obj);
 
-	fire_object_message(space, obj, ID_CREATE_OBJECT);
+	struct object * obj = NULL;
+	if(create)
+	{
+		obj = new_object(space, id);
+		map_insert(space, m , id , obj);
+	}
 	return obj;
 }
 
@@ -404,15 +453,43 @@ grab_object(struct object *obj) {
 static void
 delete_object(void *s, struct object * obj) {
 	struct aoi_space * space = s;
+	//释放邻居列表
+	struct neighbor_list* neighbor = obj->neighbors;
+	while(neighbor)
+	{
+		struct neighbor_list* next = neighbor->next;
+		space->alloc(space->alloc_ud, neighbor, sizeof(*neighbor));
+		neighbor = next;
+	}
+	obj->neighbors = NULL;
 	space->alloc(space->alloc_ud, obj, sizeof(*obj));
+	if(space->object_current == obj)
+	{
+		space->object_current = NULL;
+	}
 }
 
 inline static void
 drop_object(struct aoi_space * space, struct object *obj) {
 	--obj->ref;
 	if (obj->ref <=0) {
-		fire_object_message(space, obj, ID_DELETE_OBJECT);
+		//释放邻居列表
+		uint32_t ids[2] = {0, 0};
+		struct neighbor_list* neighbor = obj->neighbors;
+		while(neighbor)
+		{
+			struct pair_list* pair = (struct pair_list*)neighbor->pair;
+			ids[0] = pair->watcher->id;
+			ids[1] = pair->marker->id;
+			aoi_fire_message(space, ID_NEIGHBOR_LEAVE, ids);
 
+			struct neighbor_list* next = neighbor->next;
+			space->alloc(space->alloc_ud, neighbor, sizeof(*neighbor));
+			neighbor = next;
+		}
+		obj->neighbors = NULL;
+
+		fire_object_message(space, obj, ID_DELETE_OBJECT);
 		map_drop(space->object, obj->id);
 		delete_object(space, obj);
 	}
@@ -446,10 +523,10 @@ aoi_create(aoi_Alloc alloc, void *ud) {
 
 	aoi_push_message_handler(space, ID_FREE_AOI_SPACE, free_aoi_space_callback);
 	//添加对象的回调
-	aoi_push_message_handler(space, ID_CREATE_OBJECT, drop_object_callback);
+	aoi_push_message_handler(space, ID_DELETE_OBJECT, drop_object_callback);
 	//添加邻居列表的回调
-	aoi_push_message_handler(space, ID_CREATE_PAIR, gen_neighbor_callback);
-	aoi_push_message_handler(space, ID_DELETE_PAIR, drop_neighbor_callback);
+	aoi_push_message_handler(space, ID_CREATE_PAIR, gen_pair_callback);
+	aoi_push_message_handler(space, ID_DELETE_PAIR, drop_pair_callback);
 
 	return space;
 }
@@ -529,6 +606,15 @@ aoi_release(struct aoi_space *space) {
 		space->alloc(space->alloc_ud, p, sizeof(*p));
 	}
 
+	//释放 grid_objects
+	struct grid_objects* grid_obj = NULL;
+	struct grid_objects* tmp_grid_obj = NULL;
+	HASH_ITER(hh, space->grid_objects, grid_obj, tmp_grid_obj) {
+		HASH_DEL(space->grid_objects, grid_obj);
+		delete_set(space, grid_obj->objects);
+		space->alloc(space->alloc_ud, grid_obj, sizeof(*grid_obj));
+	}
+
 	space->alloc(space->alloc_ud, space, sizeof(*space));
 }
 
@@ -546,11 +632,37 @@ int aoi_gen_id(struct aoi_space *space)
 			result = space->frees->ids[--space->frees->count];
 		}
 		assert(result >= 0);
-		if(map_query(space, space->object, result) == NULL)
+		if(map_query(space, space->object, result, 0) == NULL)
 		{
 			return result;
 		}
 	}
+}
+
+int aoi_make_grid_id(struct aoi_space *space, int x, int y)
+{
+	if(x < 0 || x >= space->w || y < 0 || y >= space->h)
+	{
+		return -1;
+	}
+	return x * space->h + y;
+}
+
+int aoi_break_grid_id(struct aoi_space *space, int id, int *x, int *y)
+{
+	if(id < 0 || id >= space->w * space->h)
+	{
+		return 0;
+	}
+	if(x)
+	{
+		*x = id / space->h;
+	}
+	if(y)
+	{
+		*y = id % space->h;
+	}
+	return 1;
 }
 
 void aoi_get_size(struct aoi_space *space, int *w, int *h, float *f)
@@ -567,6 +679,45 @@ void aoi_get_size(struct aoi_space *space, int *w, int *h, float *f)
 	{
 		*f = space->f;
 	}
+}
+
+int aoi_begin_parse_grid(struct aoi_space *space, int grid)
+{
+	space->grid_objects_parsing = NULL;
+	space->grid_objects_parsing_index = 0;
+	if(grid < 0 || grid >= space->w * space->h)
+	{
+		return 0;
+	}
+	struct grid_objects* grid_obj = NULL;
+	HASH_FIND_INT(space->grid_objects, &grid, grid_obj);
+	if(grid_obj == NULL || grid_obj->objects->number <= 0)
+	{
+		return 0;
+	}
+	space->grid_objects_parsing = grid_obj;
+	return 1;
+}
+
+int aoi_next_object(struct aoi_space *space, uint32_t* id)
+{
+	if(space->grid_objects_parsing == NULL)
+	{
+		return 0;
+	}
+	if(space->grid_objects_parsing_index >= space->grid_objects_parsing->objects->number)
+	{
+		return 0;
+	}
+	space->object_current = space->grid_objects_parsing->objects->slot[space->grid_objects_parsing_index++];
+	*id = space->object_current->id;
+	return 1;
+}
+
+int aoi_end_parse_grid(struct aoi_space *space)
+{
+	space->grid_objects_parsing = NULL;
+	return 1;
 }
 
 static bool
@@ -643,6 +794,58 @@ flush_move_sign(struct aoi_space *space, struct object * obj)
 	{
 		return;
 	}
+
+	if(obj->last[0] == obj->position[0] && obj->last[1] == obj->position[1] && obj->last[2] == obj->position[2])
+	{
+		return;
+	}
+
+	//维护 grid_objects
+	int grid_last = aoi_make_grid_id(space, (int)obj->last[0], (int)obj->last[1]);
+	int grid = aoi_make_grid_id(space, (int)obj->position[0], (int)obj->position[1]);
+	if(grid_last != grid)
+	{
+		struct grid_objects* grid_obj = NULL;
+		HASH_FIND_INT(space->grid_objects, &grid_last, grid_obj);
+		if(grid_obj)
+		{
+			//从旧的grid中删除
+			int i;
+			struct object_set* objects = grid_obj->objects;
+			for(i = 0; i < objects->number; ++i)
+			{
+				if(objects->slot[i] == obj)
+				{
+					break;
+				}
+			}
+			
+			for(; i < objects->number - 1; ++i)
+			{
+				objects->slot[i] = objects->slot[i + 1];
+			}
+			--objects->number;
+			
+			if(objects->number == 0)
+			{
+				HASH_DEL(space->grid_objects, grid_obj);
+				delete_set(space, objects);
+				space->alloc(space->alloc_ud, grid_obj, sizeof(*grid_obj));
+			}
+		}
+
+		grid_obj = NULL;
+		HASH_FIND_INT(space->grid_objects, &grid, grid_obj);
+		if(grid_obj == NULL)
+		{
+			grid_obj = space->alloc(space->alloc_ud, NULL, sizeof(*grid_obj));
+			grid_obj->grid = grid;
+			grid_obj->objects = set_new(space);
+			HASH_ADD_INT(space->grid_objects, grid, grid_obj);
+		}
+		set_push_back(space, grid_obj->objects, obj);
+	}
+
 	obj->mode |= MODE_MOVE;
 
 	object_moved_data data;
@@ -669,50 +872,102 @@ set_position(struct aoi_space *space, struct object * obj, float pos[3])
 	flush_move_sign(space, obj);
 }
 
-void
-aoi_update(struct aoi_space * space , uint32_t id, const char * modestring , float pos[3], float radius) {
-	struct object * obj = map_query(space, space->object,id);
-	int i;
-	bool set_watcher = false;
-	bool set_marker = false;
-
-	for (i=0;modestring[i];++i) {
-		char m = modestring[i];
-		switch(m) {
-		case 'w':
-			set_watcher = true;
-			break;
-		case 'm':
-			set_marker = true;
-			break;
-		case 'd':
-			if (!(obj->mode & MODE_DROP)) {
-				obj->mode = MODE_DROP;
-				drop_object(space, obj);
-			}
-			return;
-		}
+void aoi_insert(struct aoi_space* space, uint32_t id, uint64_t mask, float pos[3], float radius)
+{
+	int is_new_obj = 0;
+	struct object* obj = map_query(space, space->object, id, 0);
+	if(obj == NULL)
+	{
+		is_new_obj = 1;
+		obj = map_query(space, space->object, id, 1);
 	}
 
-	if (obj->mode & MODE_DROP) {
+	bool set_watcher = ((mask & MODE_WATCHER_MASK) != 0);
+	bool set_marker = ((mask & MODE_MARKER_MASK) != 0);
+	if (obj->mask != mask)
+	{
+		obj->mask = mask;
+	}
+
+	if (obj->mode & MODE_DROP)
+	{
 		obj->mode &= ~MODE_DROP;
 		grab_object(obj);
 	}
 
 	bool changed = change_mode(obj, set_watcher, set_marker);
-	copy_position(obj->position, pos);
 	obj->radius = radius >= 0 ? radius : 0;
-	if (changed || !is_near(pos, obj->last)) {
-		// new object or change object mode
-		// or position changed
-		flush_move_sign(space, obj);
+	if(is_new_obj)
+	{
+		copy_position(obj->last, pos);
+		//维护 grid_objects
+		int grid = aoi_make_grid_id(space, (int)pos[0], (int)pos[1]);
+		struct grid_objects* grid_obj = NULL;
+		HASH_FIND_INT(space->grid_objects, &grid, grid_obj);
+		if(grid_obj == NULL)
+		{
+			grid_obj = space->alloc(space->alloc_ud, NULL, sizeof(*grid_obj));
+			grid_obj->grid = grid;
+			grid_obj->objects = set_new(space);
+			HASH_ADD_INT(space->grid_objects, grid, grid_obj);
+		}
+		set_push_back(space, grid_obj->objects, obj);
+
+		fire_object_message(space, obj, ID_CREATE_OBJECT);
 	}
+	else
+	{
+		set_position(space, obj, pos);
+	}
+}
+
+int aoi_erase(struct aoi_space* space, uint32_t id)
+{
+	struct object* obj = map_query(space, space->object, id, 0);
+	if(obj == NULL)
+	{
+		return 0;
+	}
+
+	if(obj->mode & MODE_DROP)
+	{
+		return 0;
+	}
+
+	obj->mode |= MODE_DROP;
+	drop_object(space, obj);
+	return 1;
+}
+
+void aoi_radius(struct aoi_space* space, uint32_t id, float r)
+{
+	struct object* obj = map_query(space, space->object, id, 0);
+	if(obj == NULL || (obj->mode & MODE_DROP) || obj->radius == r)
+	{
+		return;
+	}
+
+	obj->radius = r;
+	if(obj->neighbors)
+	{
+		//重新计算邻居
+		obj->mode |= MODE_MOVE;
+	}
+}
+
+void aoi_location(struct aoi_space* space, uint32_t id, float pos[3])
+{
+	struct object* obj = map_query(space, space->object, id, 0);
+	if(obj == NULL || (obj->mode & MODE_DROP))
+	{
+		return;
+	}
+
+	set_position(space, obj, pos);
 }
 
 static void
 drop_pair(struct aoi_space * space, struct pair_list *p) {
-	fire_pair_message(space, p, ID_DELETE_PAIR);
-
 	drop_object(space, p->watcher);
 	drop_object(space, p->marker);
 	HASH_DEL(space->hot, p);
@@ -728,6 +983,7 @@ flush_pair(struct aoi_space * space) {
 		struct object* watcher = p->watcher;
 		if ((watcher->mode & MODE_DROP) == MODE_DROP || (marker->mode & MODE_DROP) == MODE_DROP)
 		{
+			fire_pair_message(space, p, ID_DELETE_PAIR);
 			drop_pair(space, p);
 		}
 		else if ((watcher->mode & MODE_MOVE) == MODE_MOVE || (marker->mode & MODE_MOVE) == MODE_MOVE)
@@ -735,14 +991,15 @@ flush_pair(struct aoi_space * space) {
 			p->dis2 = dist2(p->watcher , p->marker);
 			if (p->dis2 > AOI_RADIS2 * 1.2f)
 			{
+				fire_pair_message(space, p, ID_DELETE_PAIR);
 				drop_pair(space, p);
 			}
 		}
 	}
 }
 
-static void
-set_push_back(struct aoi_space * space, struct object_set * set, struct object *obj) {
+static void set_push_back(struct aoi_space * space, struct object_set * set, struct object *obj)
+{
 	if (set->number >= set->cap) {
 		int cap = set->cap * 2;
 		void * tmp =  set->slot;
@@ -871,8 +1128,9 @@ release_moved(struct aoi_space * space, struct obj_moved * moved) {
 
 void
 aoi_move_to(struct aoi_space *space, uint32_t id, float speed, float pos[3]) {
-	struct object * obj = map_query(space, space->object, id);
-	if (obj->mode & MODE_DROP) {
+	struct object * obj = map_query(space, space->object, id, 0);
+	if(obj == NULL || (obj->mode & MODE_DROP))
+	{
 		return;
 	}
 
@@ -939,7 +1197,7 @@ aoi_set_speed(struct aoi_space *space, uint32_t id, float speed)
 		//如果速度为0，则刷新位置
 		if(speed == 0)
 		{
-			struct object * obj = map_query(space, space->object, id);
+			struct object * obj = map_query(space, space->object, id, 0);
 			if(obj == NULL || (obj->mode & MODE_DROP))
 			{
 				return;
@@ -947,6 +1205,7 @@ aoi_set_speed(struct aoi_space *space, uint32_t id, float speed)
 
 			if(obj->position[0] != moved->pos[0] && obj->position[1] != moved->pos[1] && obj->position[2] != moved->pos[2])
 			{
+				copy_position(obj->position, moved->pos);
 				flush_move_sign(space, obj);
 			}
 		}
@@ -971,7 +1230,7 @@ aoi_apply_move(struct aoi_space *space, float delta)
 			continue;
 		}
 
-		struct object * obj = map_query(space, space->object, moved->id);
+		struct object * obj = map_query(space, space->object, moved->id, 0);
 		if(obj == NULL || obj->mode & MODE_DROP)
 		{
 			release_moved(space, moved);
@@ -1017,7 +1276,7 @@ aoi_cancel_move(struct aoi_space *space, uint32_t id) {
 	if(moved)
 	{
 		release_moved(space, moved);
-		struct object * obj = map_query(space, space->object, id);
+		struct object * obj = map_query(space, space->object, id, 0);
 		if(obj == NULL || (obj->mode & MODE_DROP))
 		{
 			return;
@@ -1152,8 +1411,7 @@ aoi_pop_message_handler(struct aoi_space *space, const char* message_id, message
 	space->alloc(space->alloc_ud, handler, sizeof(*handler));
 }
 
-void
-aoi_fire_message(struct aoi_space *space, const char* message_id, void* userdata)
+void aoi_fire_message(struct aoi_space *space, const char* message_id, void* userdata)
 {
 	struct user_data_dict* dict = _get_user_data(space->message_handlers, message_id);
 	if(dict == NULL)
@@ -1167,11 +1425,11 @@ aoi_fire_message(struct aoi_space *space, const char* message_id, void* userdata
 	while(handler)
 	{
 		message_handler* cb = handler->data;
+		handler = handler->next;
 		if(cb)
 		{
 			cb(space, userdata);
 		}
-		handler = handler->next;
 	}
 	space->current_message_id = current_message_id;
 }
@@ -1185,6 +1443,8 @@ aoi_current_message_id(struct aoi_space *space)
 static void free_aoi_space_callback(struct aoi_space *space, void* userdata)
 {
 	aoi_pop_message_handler(space, ID_DELETE_OBJECT, drop_object_callback);
+	aoi_pop_message_handler(space, ID_CREATE_PAIR, gen_pair_callback);
+	aoi_pop_message_handler(space, ID_DELETE_PAIR, drop_pair_callback);
 }
 
 static void drop_object_callback(struct aoi_space* space, void* userdata)
@@ -1202,7 +1462,7 @@ static void drop_object_callback(struct aoi_space* space, void* userdata)
 	frees->ids[frees->count++] = objid;
 }
 
-static void gen_neighbor_callback(struct aoi_space* space, void* userdata)
+static void gen_pair_callback(struct aoi_space* space, void* userdata)
 {
 	struct pair_list * pair = ((struct aoi_pair_data*)userdata)->pair;
 	grab_neighbor(space, pair->watcher, pair);
@@ -1212,7 +1472,7 @@ static void gen_neighbor_callback(struct aoi_space* space, void* userdata)
 	aoi_fire_message(space, ID_NEIGHBOR_ENTER, ids);
 }
 
-static void drop_neighbor_callback(struct aoi_space* space, void* userdata)
+static void drop_pair_callback(struct aoi_space* space, void* userdata)
 {
 	struct pair_list * pair = ((struct aoi_pair_data*)userdata)->pair;
 	drop_neighbor(space, pair->watcher, pair);
@@ -1224,7 +1484,16 @@ static void drop_neighbor_callback(struct aoi_space* space, void* userdata)
 
 int aoi_get_object_position(struct aoi_space *space, uint32_t id, float* pos, int* mode)
 {
-	struct object* obj = map_query(space, space->object, id);
+	struct object* obj = NULL;
+	if(space->object_current && space->object_current->id == id)
+	{
+		obj = space->object_current;
+	}
+	else
+	{
+		obj = map_query(space, space->object, id, 0);
+	}
+	
 	if(obj == NULL)
 	{
 		return 0;
@@ -1240,9 +1509,19 @@ int aoi_get_object_position(struct aoi_space *space, uint32_t id, float* pos, in
 	return 1;
 }
 
+int aoi_has_neighbor(struct aoi_space *space, uint32_t id, int mask)
+{
+	struct object* obj = map_query(space, space->object, id, 0);
+	if(obj == NULL || (obj->mode & MODE_DROP) || obj->neighbors == NULL)
+	{
+		return 0;
+	}
+	return (obj->neighbor_mask & mask) != 0 ? 1 : 0;
+}
+
 int aoi_begin_parse_neighbor(struct aoi_space *space, uint32_t id)
 {
-	struct object* obj = map_query(space, space->object, id);
+	struct object* obj = map_query(space, space->object, id, 0);
 	if(obj == NULL || (obj->mode & MODE_DROP) || obj->neighbors == NULL)
 	{
 		return 0;
@@ -1283,12 +1562,13 @@ int aoi_next_neighbor(struct aoi_space *space, uint32_t* id)
 	struct pair_list* pair = (struct pair_list*)neighbor->pair;
 	if(pair->watcher->id == space->neighbor_host->id)
 	{
-		*id = pair->marker->id;
+		space->object_current = pair->marker;
 	}
 	else
 	{
-		*id = pair->watcher->id;
+		space->object_current = pair->watcher;
 	}
+	*id = space->object_current->id;
 	return 1;
 }
 
@@ -1311,6 +1591,7 @@ int aoi_end_parse_neighbor(struct aoi_space *space)
 		return 0;
 	}
 	drop_object(space, space->neighbor_host);
+	space->object_current = NULL;
 	space->neighbor_host = NULL;
 	space->neighbor = NULL;
 	return 1;
