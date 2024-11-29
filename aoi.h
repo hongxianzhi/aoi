@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "../collision/collision.h"
 
 #define MODE_WATCHER 1
 #define MODE_MARKER 2
@@ -39,6 +40,7 @@ struct aoi_space;
 
 typedef void * (*aoi_Alloc)(void *ud, void * ptr, size_t sz);
 typedef void (message_handler)(struct aoi_space* space, void* userdata);
+typedef void (collision_handler)(struct aoi_space* space, uint32_t id);
 
 AOI_API struct aoi_space * aoi_create(aoi_Alloc alloc, void *ud);
 AOI_API struct aoi_space * aoi_new(int w, int h, float f);
@@ -47,9 +49,6 @@ AOI_API int aoi_gen_id(struct aoi_space *space);
 AOI_API int aoi_make_grid_id(struct aoi_space *space, int x, int y);
 AOI_API int aoi_break_grid_id(struct aoi_space *space, int id, int *x, int *y);
 AOI_API void aoi_get_size(struct aoi_space *space, int *w, int *h, float *f);
-AOI_API int aoi_begin_parse_grid(struct aoi_space *space, int grid);
-AOI_API int aoi_next_object(struct aoi_space *space, uint32_t* id);
-AOI_API int aoi_end_parse_grid(struct aoi_space *space);
 
 AOI_API void aoi_insert(struct aoi_space* space, uint32_t id, uint64_t mask, float pos[3], float radius);
 AOI_API int aoi_erase(struct aoi_space* space, uint32_t id);
@@ -112,8 +111,14 @@ AOI_API int aoi_next_neighbor(struct aoi_space *space, uint32_t* id);
 AOI_API int aoi_end_parse_neighbor(struct aoi_space *space);
 AOI_API int aoi_is_pair(struct aoi_space *space, uint32_t id, uint32_t tid);
 
-AOI_API char* str_dup(const char* str);
-AOI_API int str_eq(const char *a, const char *b);
+//grid
+AOI_API int aoi_begin_parse_grid(struct aoi_space *space, int grid);
+AOI_API int aoi_next_object(struct aoi_space *space, uint32_t* id);
+AOI_API int aoi_end_parse_grid(struct aoi_space *space);
+
+//collision
+AOI_API int aoi_collide_circle(struct aoi_space *space, float* pos, float radius, collision_handler cb);
+AOI_API int aoi_collide_rect(struct aoi_space *space, float* center, float width, float height, collision_handler cb);
 
 #if defined(__cplusplus)
 }

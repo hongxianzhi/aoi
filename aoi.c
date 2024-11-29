@@ -139,37 +139,6 @@ struct aoi_space {
 	int grid_objects_parsing_index;
 };
 
-//快速比较两个字符串是否相等
-int str_eq(const char *a, const char *b) {
-	if(a != b && (a == NULL || b == NULL))
-	{
-		return 0;
-	}
-	
-	while (*a && *b) {
-		if (*a != *b) {
-			return 0;
-		}
-		++a;
-		++b;
-	}
-	return *a == 0 && *b == 0;
-}
-
-//拷贝字符串
-char* str_dup(const char* str)
-{
-	if(str == NULL)
-	{
-		return NULL;
-	}
-	int len = strlen(str);
-	char* dup = malloc(len + 1);
-	memcpy(dup, str, len);
-	dup[len] = '\0';
-	return dup;
-}
-
 inline void parse_neighbors(struct object* obj, pair_parser cb, void* ud)
 {
 	if (obj == NULL || obj->neighbors == NULL)
@@ -679,45 +648,6 @@ void aoi_get_size(struct aoi_space *space, int *w, int *h, float *f)
 	{
 		*f = space->f;
 	}
-}
-
-int aoi_begin_parse_grid(struct aoi_space *space, int grid)
-{
-	space->grid_objects_parsing = NULL;
-	space->grid_objects_parsing_index = 0;
-	if(grid < 0 || grid >= space->w * space->h)
-	{
-		return 0;
-	}
-	struct grid_objects* grid_obj = NULL;
-	HASH_FIND_INT(space->grid_objects, &grid, grid_obj);
-	if(grid_obj == NULL || grid_obj->objects->number <= 0)
-	{
-		return 0;
-	}
-	space->grid_objects_parsing = grid_obj;
-	return 1;
-}
-
-int aoi_next_object(struct aoi_space *space, uint32_t* id)
-{
-	if(space->grid_objects_parsing == NULL)
-	{
-		return 0;
-	}
-	if(space->grid_objects_parsing_index >= space->grid_objects_parsing->objects->number)
-	{
-		return 0;
-	}
-	space->object_current = space->grid_objects_parsing->objects->slot[space->grid_objects_parsing_index++];
-	*id = space->object_current->id;
-	return 1;
-}
-
-int aoi_end_parse_grid(struct aoi_space *space)
-{
-	space->grid_objects_parsing = NULL;
-	return 1;
 }
 
 static bool
@@ -1317,7 +1247,7 @@ aoi_create_user_data(struct aoi_space *space, const char* data_id, size_t sz)
 	assert(dict == NULL);
 	
 	dict = space->alloc(space->alloc_ud, NULL, sizeof(*dict));
-	dict->id = str_dup(data_id);
+	dict->id = _strdup(data_id);
 	dict->data = space->alloc(space->alloc_ud, NULL, sz);
 	memset(dict->data, 0, sz);
 	HASH_ADD_STR(space->user_datas, id, dict);
@@ -1344,7 +1274,7 @@ aoi_push_message_handler(struct aoi_space *space, const char* message_id, messag
 	if(dict == NULL)
 	{
 		dict = space->alloc(space->alloc_ud, NULL, sizeof(*dict));
-		dict->id = str_dup(message_id);
+		dict->id = _strdup(message_id);
 		dict->data = NULL;
 		HASH_ADD_STR(space->message_handlers, id, dict);
 	}
@@ -1594,5 +1524,132 @@ int aoi_end_parse_neighbor(struct aoi_space *space)
 	space->object_current = NULL;
 	space->neighbor_host = NULL;
 	space->neighbor = NULL;
+	return 1;
+}
+
+int aoi_begin_parse_grid(struct aoi_space *space, int grid)
+{
+	space->grid_objects_parsing = NULL;
+	space->grid_objects_parsing_index = 0;
+	if(grid < 0 || grid >= space->w * space->h)
+	{
+		return 0;
+	}
+	struct grid_objects* grid_obj = NULL;
+	HASH_FIND_INT(space->grid_objects, &grid, grid_obj);
+	if(grid_obj == NULL || grid_obj->objects->number <= 0)
+	{
+		return 0;
+	}
+	space->grid_objects_parsing = grid_obj;
+	return 1;
+}
+
+int aoi_next_object(struct aoi_space *space, uint32_t* id)
+{
+	if(space->grid_objects_parsing == NULL)
+	{
+		return 0;
+	}
+	if(space->grid_objects_parsing_index >= space->grid_objects_parsing->objects->number)
+	{
+		return 0;
+	}
+	space->object_current = space->grid_objects_parsing->objects->slot[space->grid_objects_parsing_index++];
+	*id = space->object_current->id;
+	return 1;
+}
+
+int aoi_end_parse_grid(struct aoi_space *space)
+{
+	space->grid_objects_parsing = NULL;
+	return 1;
+}
+
+int aoi_collide_circle(struct aoi_space *space, float* pos, float radius, collision_handler cb)
+{
+	if(space == NULL || pos == NULL || radius <= 0 || cb == NULL)
+	{
+		return 0;
+	}
+	//计算以当前位置为圆心，半径为radius的圆与网格的交集
+	int x = (int)pos[0];
+	int y = (int)pos[1];
+	int r = (int)radius;
+	for(int i = x - r; i <= x + r; ++i)
+	{
+		for(int j = y - r; j <= y + r; ++j)
+		{
+			if(i < 0 || i >= space->w || j < 0 || j >= space->h)
+			{
+				continue;
+			}
+			int grid = aoi_make_grid_id(space, i, j);
+			struct grid_objects* grid_obj = NULL;
+			HASH_FIND_INT(space->grid_objects, &grid, grid_obj);
+			if(grid_obj == NULL || grid_obj->objects->number <= 0)
+			{
+				continue;
+			}
+			for(int k = 0; k < grid_obj->objects->number; ++k)
+			{
+				struct object* obj = grid_obj->objects->slot[k];
+				if(obj == NULL || (obj->mode & MODE_DROP))
+				{
+					continue;
+				}
+				if(calc_dist2(pos[0], pos[1], radius, obj->position[0], obj->position[1], obj->radius) <= 0)
+				{
+					cb(space, obj->id);
+				}
+			}
+		}
+	}
+	
+	return 1;
+}
+
+int aoi_collide_rect(struct aoi_space *space, float* center, float width, float height, collision_handler cb)
+{
+	if(space == NULL || center == NULL || width <= 0 || height <= 0 || cb == NULL)
+	{
+		return 0;
+	}
+
+	//计算以当前位置为矩形中心，宽度为width，高度为height的矩形与网格的交集
+	int x = (int)center[0];
+	int y = (int)center[1];
+	float half_width = width / 2;
+	float half_height = height / 2;
+	for(int i = x - (half_width + 0.5f); i <= x + (half_width + 0.5f); ++i)
+	{
+		for(int j = y - (half_height + 0.5f); j <= y + (half_height + 0.5f); ++j)
+		{
+			if(i < 0 || i >= space->w || j < 0 || j >= space->h)
+			{
+				continue;
+			}
+			int grid = aoi_make_grid_id(space, i, j);
+			struct grid_objects* grid_obj = NULL;
+			HASH_FIND_INT(space->grid_objects, &grid, grid_obj);
+			if(grid_obj == NULL || grid_obj->objects->number <= 0)
+			{
+				continue;
+			}
+			for(int k = 0; k < grid_obj->objects->number; ++k)
+			{
+				struct object* obj = grid_obj->objects->slot[k];
+				if(obj == NULL || (obj->mode & MODE_DROP))
+				{
+					continue;
+				}
+				if(obj->position[0] >= center[0] - half_width && obj->position[0] <= center[0] + half_width &&
+					obj->position[1] >= center[1] - half_height && obj->position[1] <= center[1] + half_height)
+				{
+					cb(space, obj->id);
+				}
+			}
+		}
+	}
 	return 1;
 }
